@@ -41,7 +41,9 @@ class _InstructorScreenState extends State<InstructorScreen> {
   // Mục đang mở khi bấm vào số liệu ở đầu trang: null = chưa mở, 0 = khóa học, 1 = đánh giá
   int? _panel;
   int _coursePage = 1;
-  bool _onlySale = false; // chỉ hiện khóa đang giảm giá
+  String _courseFilter = 'all'; // all | top (từ 4 sao) | popular (nhiều học viên) | sale
+  int _starFilter = 0; // 0 = mọi đánh giá, 1..5 = chỉ đúng số sao đó
+  bool _aboutExpanded = false;
 
   String get _name => widget.course.instructor;
 
@@ -132,13 +134,8 @@ class _InstructorScreenState extends State<InstructorScreen> {
           children: [
             _buildHeader(course),
             const SizedBox(height: AppDimens.p16),
-            if (course.instructorBio.isNotEmpty) ...[
-              _buildSection('Giới thiệu & kinh nghiệm', Text(
-                course.instructorBio,
-                style: AppTypography.bodyMedium.copyWith(color: AppColors.textBody, height: 1.5),
-              )),
-              const SizedBox(height: AppDimens.p16),
-            ],
+            _buildAbout(course),
+            const SizedBox(height: AppDimens.p16),
             if (_loading)
               const Padding(padding: EdgeInsets.all(AppDimens.p32), child: LoadingView())
             else if (_error != null)
@@ -166,7 +163,21 @@ class _InstructorScreenState extends State<InstructorScreen> {
 
   bool _onSale(Course c) => c.originalPrice > c.price;
 
-  List<Course> get _visibleCourses => _onlySale ? _courses.where(_onSale).toList() : _courses;
+  bool _isTop(Course c) => c.rating >= 4.0 && c.reviewCount > 0;
+
+  List<Course> get _visibleCourses {
+    switch (_courseFilter) {
+      case 'top':
+        return _courses.where(_isTop).toList()..sort((a, b) => b.rating.compareTo(a.rating));
+      case 'popular':
+        return _courses.where((c) => c.studentsCount > 0).toList()
+          ..sort((a, b) => b.studentsCount.compareTo(a.studentsCount));
+      case 'sale':
+        return _courses.where(_onSale).toList();
+      default:
+        return _courses;
+    }
+  }
 
   int get _courseTotalPages => (_visibleCourses.length / ApiConfig.defaultPageSize).ceil().clamp(1, 1000);
 
@@ -191,25 +202,33 @@ class _InstructorScreenState extends State<InstructorScreen> {
           onSelected: (_) => onTap(),
         );
 
+    void pick(String f) => setState(() {
+          _courseFilter = f;
+          _coursePage = 1;
+        });
+
     return [
       Wrap(
         spacing: AppDimens.p8,
+        runSpacing: AppDimens.p4,
         children: [
-          chip('Tất cả (${_courses.length})', !_onlySale, () => setState(() {
-                _onlySale = false;
-                _coursePage = 1;
-              })),
-          chip('🔥 Đang giảm giá ($onSaleCount)', _onlySale, () => setState(() {
-                _onlySale = true;
-                _coursePage = 1;
-              })),
+          chip('Tất cả (${_courses.length})', _courseFilter == 'all', () => pick('all')),
+          chip('Được đánh giá cao (${_courses.where(_isTop).length})', _courseFilter == 'top', () => pick('top')),
+          chip('Học nhiều (${_courses.where((c) => c.studentsCount > 0).length})', _courseFilter == 'popular',
+              () => pick('popular')),
+          chip('Đang giảm giá ($onSaleCount)', _courseFilter == 'sale', () => pick('sale')),
         ],
       ),
       const SizedBox(height: AppDimens.p12),
       if (list.isEmpty)
         EmptyView(
           icon: Icons.local_offer_outlined,
-          title: _onlySale ? 'Chưa có khóa đang giảm giá' : 'Chưa có khóa học đang mở bán',
+          title: switch (_courseFilter) {
+            'top' => 'Chưa có khóa được đánh giá từ 4 sao',
+            'popular' => 'Chưa có khóa nào có học viên',
+            'sale' => 'Chưa có khóa đang giảm giá',
+            _ => 'Chưa có khóa học đang mở bán',
+          },
         )
       else ...[
         for (final c in pageItems)
@@ -235,12 +254,54 @@ class _InstructorScreenState extends State<InstructorScreen> {
         message: 'Các khóa của giảng viên này chưa có đánh giá nào từ học viên.',
       );
     }
-    final shown = _reviews.take(_shownReviews).toList();
+    final filtered = _starFilter == 0
+        ? _reviews
+        : _reviews.where((r) => r.rating.round() == _starFilter).toList();
+    final shown = filtered.take(_shownReviews).toList();
+
+    Widget starChip(String label, int star) {
+      final selected = _starFilter == star;
+      return ChoiceChip(
+        label: Text(label),
+        selected: selected,
+        showCheckmark: false,
+        selectedColor: AppColors.primary,
+        backgroundColor: AppColors.surface,
+        labelStyle: AppTypography.bodyMedium.copyWith(
+          color: selected ? Colors.white : AppColors.textHeading,
+          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+          fontSize: 13.0,
+        ),
+        onSelected: (_) => setState(() {
+          _starFilter = star;
+          _shownReviews = 5;
+        }),
+      );
+    }
+
     return _buildSection(
       'Đánh giá từ học viên (${_reviews.length})',
       Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Wrap(
+            spacing: AppDimens.p8,
+            runSpacing: AppDimens.p4,
+            children: [
+              starChip('Tất cả (${_reviews.length})', 0),
+              for (var star = 5; star >= 1; star--)
+                starChip('$star sao (${_reviews.where((r) => r.rating.round() == star).length})', star),
+            ],
+          ),
+          const SizedBox(height: AppDimens.p12),
+          if (filtered.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: AppDimens.p16),
+              child: Center(
+                child: Text('Không có đánh giá $_starFilter sao',
+                    style: AppTypography.bodyMedium.copyWith(color: AppColors.textMuted)),
+              ),
+            ),
           for (var i = 0; i < shown.length; i++) ...[
             if (i > 0) const Divider(color: AppColors.border, height: 24),
             Row(
@@ -267,11 +328,11 @@ class _InstructorScreenState extends State<InstructorScreen> {
               style: AppTypography.captionTiny.copyWith(color: AppColors.textMuted),
             ),
           ],
-          if (_reviews.length > 5)
+          if (filtered.length > 5)
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                if (_shownReviews < _reviews.length)
+                if (_shownReviews < filtered.length)
                   TextButton(
                     onPressed: () => setState(() => _shownReviews += 5),
                     child: const Text('Xem thêm'),
@@ -283,6 +344,86 @@ class _InstructorScreenState extends State<InstructorScreen> {
                   ),
               ],
             ),
+        ],
+      ),
+    );
+  }
+
+  /// Giới thiệu, chứng chỉ và thông tin giảng dạy; thu gọn mặc định cho trang gọn
+  Widget _buildAbout(Course course) {
+    final totalStudents = _courses.fold<int>(0, (sum, c) => sum + c.studentsCount);
+    final fields = _courses.map((c) => c.category).where((e) => e.isNotEmpty).toSet().toList();
+    final certified = _courses.where((c) => c.hasCertificate).length;
+
+    final facts = <(IconData, String)>[
+      if (!_loading && _error == null) (Icons.menu_book_outlined, 'Đang giảng dạy ${_courses.length} khóa học'),
+      if (totalStudents > 0) (Icons.groups_outlined, '$totalStudents học viên đã đăng ký'),
+      if (fields.isNotEmpty) (Icons.category_outlined, 'Lĩnh vực: ${fields.join(', ')}'),
+      if (certified > 0) (Icons.workspace_premium_outlined, '$certified khóa cấp chứng chỉ hoàn thành'),
+    ];
+    final certs = course.instructorCertificates;
+    final bio = course.instructorBio.trim();
+
+    Widget heading(String text) => Padding(
+          padding: const EdgeInsets.only(top: AppDimens.p12, bottom: 4.0),
+          child: Text(text, style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.w700)),
+        );
+
+    final intro = bio.isEmpty
+        ? Text('Giảng viên chưa cập nhật lời giới thiệu.',
+            style: AppTypography.bodyMedium.copyWith(color: AppColors.textMuted))
+        : Text(bio,
+            maxLines: _aboutExpanded ? null : 3,
+            overflow: _aboutExpanded ? TextOverflow.visible : TextOverflow.ellipsis,
+            style: AppTypography.bodyMedium.copyWith(color: AppColors.textBody, height: 1.5));
+
+    return _buildSection(
+      'Giới thiệu giảng viên',
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          intro,
+          if (_aboutExpanded) ...[
+            if (facts.isNotEmpty) ...[
+              heading('Thông tin giảng dạy'),
+              for (final f in facts)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3.0),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(f.$1, size: 18, color: AppColors.primary),
+                      const SizedBox(width: 8.0),
+                      Expanded(child: Text(f.$2, style: AppTypography.bodyMedium.copyWith(color: AppColors.textBody))),
+                    ],
+                  ),
+                ),
+            ],
+            heading('Chứng chỉ'),
+            if (certs.isEmpty)
+              Text('Giảng viên chưa cập nhật chứng chỉ.',
+                  style: AppTypography.bodyMedium.copyWith(color: AppColors.textMuted))
+            else
+              for (final c in certs)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3.0),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.verified_outlined, size: 18, color: AppColors.success),
+                      const SizedBox(width: 8.0),
+                      Expanded(child: Text(c, style: AppTypography.bodyMedium.copyWith(color: AppColors.textBody))),
+                    ],
+                  ),
+                ),
+          ],
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: () => setState(() => _aboutExpanded = !_aboutExpanded),
+              child: Text(_aboutExpanded ? 'Ẩn bớt' : 'Xem thêm'),
+            ),
+          ),
         ],
       ),
     );

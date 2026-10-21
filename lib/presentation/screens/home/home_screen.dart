@@ -1,5 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import '../category/category_courses_screen.dart';
 import '../learning_support/learning_data_scope.dart';
 import '../../widgets/course_favorite_button.dart';
 import '../../../core/constants/app_colors.dart';
@@ -34,7 +35,8 @@ class HomeScreenState extends State<HomeScreen> {
       LearningDataScope.read(context)?.recommendations ??
       RecommendationRepository();
 
-  String _selectedCategory = 'all';
+  // Danh mục bấm ở "Danh mục phổ biến" mở màn riêng nên khối khám phá bên dưới luôn hiện tất cả
+  final String _selectedCategory = 'all';
 
   bool _loading = true;
   Object? _error;
@@ -581,28 +583,30 @@ class HomeScreenState extends State<HomeScreen> {
                       emoji: '✨',
                     )
                   : _categories[index - 1];
-              final isSelected = cat.id == _selectedCategory;
-
-              return FilterChip(
-                label: Text(index == 0 ? '${cat.emoji} ${cat.name}' : cat.name),
-                selected: isSelected,
+              // Bấm một danh mục thì mở danh sách khóa học của danh mục đó (giống web);
+              // "Tất cả" chuyển sang tab Khám phá
+              return ActionChip(
+                label: Text(cat.name),
                 backgroundColor: AppColors.surface,
-                selectedColor: AppColors.primary,
-                checkmarkColor: Colors.white,
                 labelStyle: AppTypography.bodyMedium.copyWith(
-                  color: isSelected ? Colors.white : AppColors.textHeading,
-                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                  color: AppColors.textHeading,
+                  fontWeight: FontWeight.w500,
                   fontSize: 13.0,
                 ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(999.0),
-                  side: BorderSide(
-                    color: isSelected ? AppColors.primary : AppColors.border,
-                  ),
+                  side: const BorderSide(color: AppColors.border),
                 ),
-                onSelected: (val) {
-                  setState(() => _selectedCategory = cat.id);
-                  _loadCourses();
+                onPressed: () {
+                  if (index == 0) {
+                    widget.onNavigateTab?.call(1);
+                    return;
+                  }
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => CategoryCoursesScreen(category: cat),
+                    ),
+                  );
                 },
               );
             },

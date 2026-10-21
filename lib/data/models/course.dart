@@ -20,6 +20,7 @@ class Course {
   final String instructorAvatar;
   final String instructorId;
   final String instructorBio;
+  final List<String> instructorCertificates;
   final int studentsCount;
   final double rating;
   final int reviewCount;
@@ -59,6 +60,7 @@ class Course {
     this.instructorAvatar = defaultInstructorAvatar,
     this.instructorId = '',
     this.instructorBio = '',
+    this.instructorCertificates = const [],
     this.studentsCount = 0,
     required this.rating,
     required this.reviewCount,
@@ -109,6 +111,9 @@ class Course {
             defaultInstructorAvatar,
       ),
       instructorId: JsonUtils.asString(instructorInfo['id']),
+      instructorCertificates: JsonUtils.asStringList(
+        instructorInfo['certificates'] ?? instructorInfo['certifications'],
+      ),
       instructorBio: JsonUtils.asString(
         instructorInfo['bio'] ?? instructorInfo['introduction'],
       ),
@@ -158,6 +163,7 @@ class Course {
     String? instructorAvatar,
     String? instructorId,
     String? instructorBio,
+    List<String>? instructorCertificates,
     int? studentsCount,
     double? rating,
     int? reviewCount,
@@ -193,6 +199,7 @@ class Course {
       instructorAvatar: instructorAvatar ?? this.instructorAvatar,
       instructorId: instructorId ?? this.instructorId,
       instructorBio: instructorBio ?? this.instructorBio,
+      instructorCertificates: instructorCertificates ?? this.instructorCertificates,
       studentsCount: studentsCount ?? this.studentsCount,
       rating: rating ?? this.rating,
       reviewCount: reviewCount ?? this.reviewCount,
