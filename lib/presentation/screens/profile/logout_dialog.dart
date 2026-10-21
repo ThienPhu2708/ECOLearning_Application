@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_dimens.dart';
 import '../../../core/constants/app_typography.dart';
 import '../../widgets/app_button.dart';
+import '../../providers/auth_provider.dart';
 import '../auth/login_screen.dart';
 
 /// Modal Hộp thoại xác nhận Đăng xuất theo QuyChuanThietKe_App.md Mục 4.8 & UC2
@@ -69,9 +71,13 @@ class LogoutDialog extends StatelessWidget {
                 child: AppButton(
                   text: 'Đăng xuất',
                   type: AppButtonType.danger,
-                  onPressed: () {
-                    Navigator.of(context).pop(); // pop dialog
-                    Navigator.of(context).pushAndRemoveUntil(
+                  onPressed: () async {
+                    final nav = Navigator.of(context);
+                    final auth = context.read<AuthProvider>();
+                    nav.pop(); // pop dialog
+                    // A7: báo server thu hồi token; token trên máy luôn bị xóa dù mất mạng
+                    await auth.logout();
+                    nav.pushAndRemoveUntil(
                       MaterialPageRoute(builder: (context) => const LoginScreen()),
                       (route) => false,
                     );

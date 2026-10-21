@@ -88,9 +88,12 @@ class ErrorView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isNetwork = error is ApiException && (error as ApiException).isNetwork;
+    final isNotFound = error is ApiException && (error as ApiException).isNotFound;
     return EmptyView(
-      icon: isNetwork ? Icons.wifi_off_rounded : Icons.error_outline_rounded,
-      title: isNetwork ? 'Lỗi kết nối mạng' : 'Không tải được dữ liệu',
+      icon: isNetwork
+          ? Icons.wifi_off_rounded
+          : (isNotFound ? Icons.search_off_rounded : Icons.error_outline_rounded),
+      title: isNetwork ? 'Lỗi kết nối mạng' : (isNotFound ? 'Không tìm thấy' : 'Không tải được dữ liệu'),
       message: errorMessage(error),
       actionText: onRetry == null ? null : 'Thử lại',
       onAction: onRetry,

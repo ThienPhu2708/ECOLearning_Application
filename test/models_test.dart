@@ -4,11 +4,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ecolearning_app/core/network/api_exception.dart';
 import 'package:ecolearning_app/core/network/paged_result.dart';
 import 'package:ecolearning_app/data/models/auth_session.dart';
+import 'package:ecolearning_app/data/models/cart_quote.dart';
 import 'package:ecolearning_app/data/models/course.dart';
 import 'package:ecolearning_app/data/repositories/learning_repository.dart';
 
 /// Kiểm tra model đọc đúng các mẫu JSON trong Task_Tuan10.docx (mục 5.5, B3, G2, A1)
 void main() {
+  cartQuoteTests();
   test('CourseSummary (mục 5.5)', () {
     final c = Course.fromJson({
       'id': 'KH260929150333',
@@ -131,5 +133,63 @@ void main() {
 
     final network = ApiException.fromDio(DioException(requestOptions: options, type: DioExceptionType.connectionError));
     expect(network.isNetwork, isTrue);
+  });
+}
+
+void cartQuoteTests() {
+  group('Báo giá giỏ hàng (F1)', () {
+    test('mã hợp lệ và khóa bị loại', () {
+      final q = CartQuote.fromJson({
+        'items': [
+          {'id': 'c1', 'price': 349000},
+        ],
+        'subTotal': 349000,
+        'discount': 34900,
+        'total': 314100,
+        'coupon': {'code': 'ABC', 'isValid': true},
+        'invalidItems': [
+          {'courseId': 'c2', 'reason': 'Bạn đã sở hữu khóa học này'},
+        ],
+      });
+      expect(q.total, 314100);
+      expect(q.prices['c1'], 349000);
+      expect(q.couponCode, 'ABC');
+      expect(q.invalidItems.single.courseId, 'c2');
+    });
+
+    test('ví dụ F1 trong tài liệu hợp đồng', () {
+      final q = CartQuote.fromJson({
+        'items': [
+          {'id': 'KH01', 'title': 'x', 'price': 349000, 'originalPrice': 499000},
+        ],
+        'subTotal': 349000,
+        'discount': 69800,
+        'total': 279200,
+        'coupon': {'code': 'GIAM20', 'valid': true, 'message': 'Giảm 69.800 đ'},
+        'invalidItems': [
+          {'id': 'KH02', 'reason': 'Bạn đã sở hữu khóa học này'},
+        ],
+        'paymentMethods': [
+          {'id': 'Napas', 'name': 'Thẻ ATM nội địa', 'enabled': true},
+          {'id': 'Visa/Mastercard', 'name': 'Thẻ quốc tế', 'enabled': false, 'reason': 'Chưa hỗ trợ'},
+        ],
+      });
+      expect(q.couponCode, 'GIAM20');
+      expect(q.invalidItems.single.courseId, 'KH02');
+      expect(q.paymentMethods.first.enabled, isTrue);
+      expect(q.paymentMethods.last.enabled, isFalse);
+      expect(q.paymentMethods.last.reason, 'Chưa hỗ trợ');
+    });
+
+    test('mã sai không được áp dụng', () {
+      final q = CartQuote.fromJson({
+        'subTotal': 100,
+        'discount': 0,
+        'total': 100,
+        'coupon': {'code': 'SAI', 'isValid': false, 'message': 'Mã hết hạn'},
+      }, requestedCoupon: 'SAI');
+      expect(q.couponCode, isNull);
+      expect(q.couponMessage, 'Mã hết hạn');
+    });
   });
 }

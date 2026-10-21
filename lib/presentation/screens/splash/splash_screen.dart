@@ -1,8 +1,10 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_typography.dart';
-import 'onboarding_screen.dart';
+import '../../providers/auth_provider.dart';
+import '../auth/login_screen.dart';
+import '../main_navigation.dart';
 
 /// Màn hình khởi động Splash Screen
 class SplashScreen extends StatefulWidget {
@@ -17,7 +19,6 @@ class _SplashScreenState extends State<SplashScreen>
   late AnimationController _controller;
   late Animation<double> _scaleAnimation;
   late Animation<double> _opacityAnimation;
-  Timer? _timer;
 
   @override
   void initState() {
@@ -37,25 +38,30 @@ class _SplashScreenState extends State<SplashScreen>
 
     _controller.forward();
 
-    // Chuyển trang tự động sau 2 giây
-    _timer = Timer(const Duration(milliseconds: 2200), () {
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
-          PageRouteBuilder(
-            pageBuilder: (context, anim, secAnim) => const OnboardingScreen(),
-            transitionsBuilder: (context, anim, secAnim, child) {
-              return FadeTransition(opacity: anim, child: child);
-            },
-            transitionDuration: const Duration(milliseconds: 400),
-          ),
-        );
-      }
-    });
+    // Chờ hiệu ứng khởi động, đồng thời kiểm tra token (A8) để chọn màn hình đầu tiên
+    _start();
+  }
+
+  Future<void> _start() async {
+    final auth = context.read<AuthProvider>();
+    final results = await Future.wait([
+      auth.restoreSession(),
+      Future<void>.delayed(const Duration(milliseconds: 2200)),
+    ]);
+    if (!mounted) return;
+    final loggedIn = results.first as bool;
+    final Widget next = loggedIn ? const MainNavigationScreen() : const LoginScreen();
+    Navigator.of(context).pushReplacement(
+      PageRouteBuilder(
+        pageBuilder: (context, anim, secAnim) => next,
+        transitionsBuilder: (context, anim, secAnim, child) => FadeTransition(opacity: anim, child: child),
+        transitionDuration: const Duration(milliseconds: 400),
+      ),
+    );
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
     _controller.dispose();
     super.dispose();
   }

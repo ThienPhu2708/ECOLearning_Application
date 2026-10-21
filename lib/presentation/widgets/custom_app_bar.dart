@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_dimens.dart';
 import '../../core/constants/app_typography.dart';
-import '../../data/mock_data.dart';
+import 'package:provider/provider.dart';
+import '../providers/auth_provider.dart';
+import '../providers/cart_provider.dart';
 import '../screens/cart/cart_screen.dart';
 
 /// AppBar chuẩn hóa cho phân hệ Học viên theo QuyChuanThietKe_App.md Mục 3.2 & 4.2
@@ -31,6 +33,9 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
 
   @override
   Widget build(BuildContext context) {
+    final user = context.watch<AuthProvider>().user;
+    final cartCount = context.watch<CartProvider>().count;
+    final avatarUrl = user?.avatarUrl ?? '';
     return AppBar(
       elevation: 0,
       scrolledUnderElevation: 0,
@@ -50,28 +55,39 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
                     ),
                     child: CircleAvatar(
                       radius: 18.0,
-                      backgroundImage: NetworkImage(MockData.currentUser.avatarUrl),
+                      backgroundColor: AppColors.primaryLight,
+                      backgroundImage: avatarUrl.isEmpty ? null : NetworkImage(avatarUrl),
+                      onBackgroundImageError: avatarUrl.isEmpty ? null : (_, _) {},
+                      child: avatarUrl.isEmpty
+                          ? const Icon(Icons.person_rounded, color: AppColors.primary)
+                          : null,
                     ),
                   ),
                 ),
                 const SizedBox(width: AppDimens.p12),
-                Column(
+                Expanded(
+                  child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      'Xin chào, ${MockData.currentUser.fullName} 👋',
+                      'Xin chào, ${user?.fullName ?? 'bạn'} 👋',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: AppTypography.titleMedium.copyWith(
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                     Text(
                       'Cùng tiếp tục lộ trình học nào!',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: AppTypography.captionTiny.copyWith(
                         color: AppColors.textSecondary,
                       ),
                     ),
                   ],
+                  ),
                 ),
               ],
             )
@@ -97,10 +113,10 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
             padding: const EdgeInsets.only(right: AppDimens.p8),
             child: IconButton(
               icon: Badge(
-                isLabelVisible: MockData.cartItems.isNotEmpty,
+                isLabelVisible: cartCount > 0,
                 backgroundColor: AppColors.primary,
                 label: Text(
-                  '${MockData.cartItems.length}',
+                  '$cartCount',
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 10,

@@ -1,4 +1,5 @@
 import '../../core/network/api_client.dart';
+import '../../core/network/api_exception.dart';
 import '../../core/utils/json_utils.dart';
 import '../models/auth_session.dart';
 
@@ -46,6 +47,18 @@ class AuthRepository {
   Future<int> sendForgotOtp(String email) async {
     final data = await _api.post('/auth/forgot/send-otp', data: {'email': email.trim()});
     return JsonUtils.asInt(JsonUtils.asMap(data)['expiresInSeconds'], fallback: 300);
+  }
+
+  /// Quên mật khẩu: kiểm tra mã OTP trước khi cho nhập mật khẩu mới (`POST /auth/forgot/verify-otp`).
+  /// Trả null nếu server chưa có API này (404), khi đó app kiểm mã ở bước đặt mật khẩu (A6).
+  Future<bool?> verifyForgotOtp({required String email, required String otp}) async {
+    try {
+      final data = await _api.post('/auth/forgot/verify-otp', data: {'email': email.trim(), 'otp': otp.trim()});
+      return JsonUtils.asBool(JsonUtils.asMap(data)['valid'], fallback: true);
+    } on ApiException catch (e) {
+      if (e.statusCode == 404 || e.code == 'API_NOT_FOUND') return null;
+      rethrow;
+    }
   }
 
   /// A6. Quên mật khẩu: đặt mật khẩu mới

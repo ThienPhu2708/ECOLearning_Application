@@ -17,6 +17,9 @@ class Course {
   final String instructor;
   final String instructorRole;
   final String instructorAvatar;
+  final String instructorId;
+  final String instructorBio;
+  final int studentsCount;
   final double rating;
   final int reviewCount;
   final double price;
@@ -32,6 +35,7 @@ class Course {
   bool isCompleted;
   bool isFavorite;
   bool canReview;
+  final bool inCartAllowed; // B3: false khi đã sở hữu / ngừng bán
   final String description;
   final List<String> outcomes;
   final List<Chapter> chapters;
@@ -52,6 +56,9 @@ class Course {
     required this.instructor,
     this.instructorRole = 'Chuyên gia giảng dạy',
     this.instructorAvatar = defaultInstructorAvatar,
+    this.instructorId = '',
+    this.instructorBio = '',
+    this.studentsCount = 0,
     required this.rating,
     required this.reviewCount,
     required this.price,
@@ -67,6 +74,7 @@ class Course {
     this.isCompleted = false,
     this.isFavorite = false,
     this.canReview = false,
+    this.inCartAllowed = true,
     this.description = '',
     this.outcomes = const [],
     this.chapters = const [],
@@ -92,7 +100,12 @@ class Course {
       categoryId: JsonUtils.asString(json['categoryId']),
       instructor: JsonUtils.asString(json['instructor']),
       instructorRole: JsonUtils.asStringOrNull(instructorInfo['title']) ?? 'Chuyên gia giảng dạy',
-      instructorAvatar: JsonUtils.asStringOrNull(json['instructorAvatar']) ?? defaultInstructorAvatar,
+      instructorAvatar: JsonUtils.asStringOrNull(instructorInfo['avatarUrl']) ??
+          JsonUtils.asStringOrNull(json['instructorAvatar']) ??
+          defaultInstructorAvatar,
+      instructorId: JsonUtils.asString(instructorInfo['id']),
+      instructorBio: JsonUtils.asString(instructorInfo['bio'] ?? instructorInfo['introduction']),
+      studentsCount: JsonUtils.asInt(json['studentsCount']),
       rating: JsonUtils.asDouble(json['rating']),
       reviewCount: JsonUtils.asInt(json['reviewCount']),
       price: price,
@@ -108,6 +121,7 @@ class Course {
       isCompleted: JsonUtils.asBool(json['isCompleted'], fallback: progress >= 100),
       isFavorite: JsonUtils.asBool(json['isFavorite']),
       canReview: JsonUtils.asBool(json['canReview']),
+      inCartAllowed: JsonUtils.asBool(json['inCartAllowed'], fallback: true),
       description: JsonUtils.asString(json['description']),
       outcomes: JsonUtils.asStringList(json['outcomes']),
       chapters: JsonUtils.asMapList(json['chapters']).map(Chapter.fromJson).toList(),
@@ -126,6 +140,9 @@ class Course {
     String? instructor,
     String? instructorRole,
     String? instructorAvatar,
+    String? instructorId,
+    String? instructorBio,
+    int? studentsCount,
     double? rating,
     int? reviewCount,
     double? price,
@@ -141,6 +158,7 @@ class Course {
     bool? isCompleted,
     bool? isFavorite,
     bool? canReview,
+    bool? inCartAllowed,
     String? description,
     List<String>? outcomes,
     List<Chapter>? chapters,
@@ -157,6 +175,9 @@ class Course {
       instructor: instructor ?? this.instructor,
       instructorRole: instructorRole ?? this.instructorRole,
       instructorAvatar: instructorAvatar ?? this.instructorAvatar,
+      instructorId: instructorId ?? this.instructorId,
+      instructorBio: instructorBio ?? this.instructorBio,
+      studentsCount: studentsCount ?? this.studentsCount,
       rating: rating ?? this.rating,
       reviewCount: reviewCount ?? this.reviewCount,
       price: price ?? this.price,
@@ -172,6 +193,7 @@ class Course {
       isCompleted: isCompleted ?? this.isCompleted,
       isFavorite: isFavorite ?? this.isFavorite,
       canReview: canReview ?? this.canReview,
+      inCartAllowed: inCartAllowed ?? this.inCartAllowed,
       description: description ?? this.description,
       outcomes: outcomes ?? this.outcomes,
       chapters: chapters ?? this.chapters,
