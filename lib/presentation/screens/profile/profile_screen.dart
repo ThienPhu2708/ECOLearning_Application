@@ -17,17 +17,20 @@ import '../../../data/repositories/profile_repository.dart';
 import '../orders/order_history_screen.dart';
 import '../favorites/favorites_screen.dart';
 import '../my_courses/certificates_screen.dart';
+import '../my_courses/my_courses_screen.dart';
 import '../learning_support/learning_data_scope.dart';
 import '../../../data/repositories/quiz_repository.dart';
 
 /// Tab 4: Hồ sơ cá nhân và cài đặt theo QuyChuanThietKe_App.md Mục 4.8, UC2 & UC3
 class ProfileScreen extends StatefulWidget {
   final bool isActive;
+  final ValueChanged<int>? onOpenCourses;
   final User? user;
   final QuizRepository? repository;
   const ProfileScreen({
     super.key,
     this.isActive = true,
+    this.onOpenCourses,
     this.user,
     this.repository,
   });
@@ -68,6 +71,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
         setState(() => _certificateCount = null);
       }
     }
+  }
+
+  Future<void> _openCourses(int tab) async {
+    final navigate = widget.onOpenCourses;
+    if (navigate != null) {
+      navigate(tab);
+      return;
+    }
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          appBar: AppBar(title: const Text('Khóa học của tôi')),
+          body: MyCoursesScreen(initialTabIndex: tab),
+        ),
+      ),
+    );
   }
 
   Future<void> _openCertificates() async {
@@ -212,16 +232,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         _buildStatItem(
                           'Đang học',
                           user.inProgressCoursesCount.toString(),
+                          onTap: () => _openCourses(0),
                         ),
                         _buildStatDivider(),
                         _buildStatItem(
                           'Hoàn thành',
                           user.completedCoursesCount.toString(),
+                          onTap: () => _openCourses(1),
                         ),
                         _buildStatStatDivider(),
                         _buildStatItem(
                           'Chứng chỉ',
                           _certificateCount?.toString() ?? '—',
+                          onTap: _openCertificates,
                         ),
                       ],
                     ),
@@ -374,26 +397,40 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildStatItem(String label, String value) {
+  Widget _buildStatItem(
+    String label,
+    String value, {
+    required VoidCallback onTap,
+  }) {
     return Expanded(
-      child: Column(
-        children: [
-          Text(
-            value,
-            style: AppTypography.headlineMedium.copyWith(
-              color: AppColors.primary,
-              fontWeight: FontWeight.w800,
-              fontSize: 20.0,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Column(
+              children: [
+                Text(
+                  value,
+                  style: AppTypography.headlineMedium.copyWith(
+                    color: AppColors.primary,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 20.0,
+                  ),
+                ),
+                const SizedBox(height: 2.0),
+                Text(
+                  label,
+                  style: AppTypography.captionTiny.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 2.0),
-          Text(
-            label,
-            style: AppTypography.captionTiny.copyWith(
-              color: AppColors.textSecondary,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

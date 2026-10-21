@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'core/notifications/study_reminder_service.dart';
 import 'package:provider/provider.dart';
 
 import 'core/network/api_client.dart';
@@ -29,6 +31,15 @@ Future<void> main() async {
   };
 
   runApp(EcoLearningApp(auth: auth, cart: cart));
+  unawaited(_restoreStudyReminder());
+}
+
+Future<void> _restoreStudyReminder() async {
+  try {
+    await StudyReminderService.instance.restore();
+  } catch (error) {
+    debugPrint('Study reminder restore failed: $error');
+  }
 }
 
 class EcoLearningApp extends StatelessWidget {

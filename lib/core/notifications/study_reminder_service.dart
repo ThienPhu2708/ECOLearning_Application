@@ -4,7 +4,9 @@ import 'package:flutter/material.dart' show TimeOfDay;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:timezone/data/latest.dart' as tzdata;
+// Android devices may report legacy IANA names such as Asia/Saigon.
+// Keep aliases as well as current names so local reminders can be scheduled.
+import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 import '../network/api_exception.dart';
 
@@ -71,6 +73,7 @@ abstract class ReminderNotifications {
   Future<bool> requestPermission();
   Future<bool> isAllowed();
   Future<bool> requestExactPermission();
+  Future<bool> canScheduleExact();
   Future<void> schedule(ReminderSettings settings);
   Future<void> cancel();
 }
@@ -140,6 +143,13 @@ class DeviceReminderNotifications implements ReminderNotifications {
       return await _android!.areNotificationsEnabled() ?? false;
     }
     return (await _ios?.checkPermissions())?.isEnabled ?? false;
+  }
+
+  @override
+  Future<bool> canScheduleExact() async {
+    await initialize();
+    return _android == null ||
+        await _android!.canScheduleExactNotifications() == true;
   }
 
   @override
@@ -214,6 +224,25 @@ class StudyReminderService {
         message: 'Chưa lưu được lịch nhắc. Vui lòng thử lại.',
       );
     }
+  }
+
+  /// Re-register the persisted daily alarm after app updates or a lost alarm.
+  /// Startup only: never prompt for permissions and never switch reminders on.
+  Future<ReminderSettings> restore() async {
+    final old = await load();
+    if (!old.enabled) return old;
+    await notifications.initialize();
+    if (!await notifications.isAllowed()) return old;
+    final exact = await notifications.canScheduleExact();
+    final settings = ReminderSettings(
+      enabled: true,
+      hour: old.hour,
+      minute: old.minute,
+      exact: exact,
+    );
+    await notifications.schedule(settings);
+    if (old.exact != exact) await _store(settings);
+    return settings;
   }
 
   Future<ReminderSettings> enable(TimeOfDay time) async {

@@ -21,6 +21,7 @@ import '../../../data/repositories/review_repository.dart';
 /// G1: owned courses from the API, without a mock-data fallback.
 class MyCoursesScreen extends StatefulWidget {
   final bool isActive;
+  final int initialTabIndex;
   final Function(int tabIndex)? onNavigateTab;
   final LearningRepository? repository;
   final QuizRepository? quizRepository;
@@ -31,6 +32,7 @@ class MyCoursesScreen extends StatefulWidget {
   const MyCoursesScreen({
     super.key,
     this.isActive = true,
+    this.initialTabIndex = 0,
     this.onNavigateTab,
     this.repository,
     this.quizRepository,
@@ -40,10 +42,10 @@ class MyCoursesScreen extends StatefulWidget {
   });
 
   @override
-  State<MyCoursesScreen> createState() => _MyCoursesScreenState();
+  State<MyCoursesScreen> createState() => MyCoursesScreenState();
 }
 
-class _MyCoursesScreenState extends State<MyCoursesScreen>
+class MyCoursesScreenState extends State<MyCoursesScreen>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final TabController _tabs;
   late final MyCoursesController _controller;
@@ -54,7 +56,11 @@ class _MyCoursesScreenState extends State<MyCoursesScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _tabs = TabController(length: 2, vsync: this);
+    _tabs = TabController(
+      length: 2,
+      vsync: this,
+      initialIndex: widget.initialTabIndex.clamp(0, 1),
+    );
     _controller = MyCoursesController(
       widget.repository ??
           LearningDataScope.read(context)?.learning ??
@@ -62,6 +68,8 @@ class _MyCoursesScreenState extends State<MyCoursesScreen>
     );
     _controller.load();
   }
+
+  void showTab(int index) => _tabs.animateTo(index.clamp(0, 1));
 
   @override
   void didUpdateWidget(covariant MyCoursesScreen oldWidget) {

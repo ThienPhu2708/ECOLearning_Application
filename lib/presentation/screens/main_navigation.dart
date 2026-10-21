@@ -28,6 +28,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   late int _currentIndex = widget.initialIndex;
 
   final _homeKey = GlobalKey<HomeScreenState>();
+  final _coursesKey = GlobalKey<MyCoursesScreenState>();
 
   @override
   void initState() {
@@ -62,6 +63,13 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     if (index == 3) {
       context.read<AuthProvider>().refreshUser().catchError((_) {});
     }
+  }
+
+  void _openCourses(int tab) {
+    _onTabSelected(2);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _coursesKey.currentState?.showTab(tab);
+    });
   }
 
   @override
@@ -107,12 +115,16 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           const ExploreScreen(),
           signedIn
               ? MyCoursesScreen(
+                  key: _coursesKey,
                   isActive: _currentIndex == 2,
                   onNavigateTab: _onTabSelected,
                 )
               : const SignInRequired(),
           signedIn
-              ? ProfileScreen(isActive: _currentIndex == 3)
+              ? ProfileScreen(
+                  isActive: _currentIndex == 3,
+                  onOpenCourses: _openCourses,
+                )
               : const SignInRequired(),
         ],
       ),

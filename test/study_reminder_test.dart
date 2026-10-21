@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest.dart' as data;
@@ -24,6 +26,8 @@ class FakeNotifications implements ReminderNotifications {
   @override
   Future<bool> requestExactPermission() async => exact;
   @override
+  Future<bool> canScheduleExact() async => exact;
+  @override
   Future<void> schedule(ReminderSettings settings) async {
     schedules++;
     if (fail) {
@@ -45,6 +49,88 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     data.initializeTimeZones();
   });
+  test(
+    'startup restores a lost daily alarm without asking permission again',
+    () async {
+      final prefs = await SharedPreferences.getInstance();
+      final platform = FakeNotifications();
+      final service = StudyReminderService(
+        preferences: prefs,
+        notifications: platform,
+      );
+      await service.enable(const TimeOfDay(hour: 22, minute: 10));
+      final permissionRequests = platform.permissionRequests;
+      platform.pending =
+          null; // Android cancelled the alarm during app replacement.
+      final restored = await StudyReminderService(
+        preferences: prefs,
+        notifications: platform,
+      ).restore();
+      expect(restored.timeLabel, '22:10');
+      expect(platform.pending?.timeLabel, '22:10');
+      expect(platform.permissionRequests, permissionRequests);
+      platform.exact = false;
+      expect((await service.restore()).exact, isFalse);
+      expect((await service.load()).exact, isFalse);
+      await service.disable();
+      final schedules = platform.schedules;
+      await service.restore();
+      expect(platform.schedules, schedules);
+      expect(platform.pending, isNull);
+    },
+  );
+  testWidgets(
+    'Android legacy Asia/Saigon timezone schedules successfully without exact-alarm permission',
+    (tester) async {
+      AndroidFlutterLocalNotificationsPlugin.registerWith();
+      const timezoneChannel = MethodChannel('flutter_timezone');
+      const notificationChannel = MethodChannel(
+        'dexterous.com/flutter/local_notifications',
+      );
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      Map<dynamic, dynamic>? scheduled;
+      messenger.setMockMethodCallHandler(
+        timezoneChannel,
+        (call) async => 'Asia/Saigon',
+      );
+      messenger.setMockMethodCallHandler(notificationChannel, (call) async {
+        switch (call.method) {
+          case 'initialize':
+          case 'requestNotificationsPermission':
+            return true;
+          case 'getNotificationAppLaunchDetails':
+            return {'notificationLaunchedApp': false};
+          case 'canScheduleExactNotifications':
+          case 'requestExactAlarmsPermission':
+            return false;
+          case 'zonedSchedule':
+            scheduled = call.arguments as Map<dynamic, dynamic>;
+            return null;
+          default:
+            return null;
+        }
+      });
+      addTearDown(() {
+        messenger.setMockMethodCallHandler(timezoneChannel, null);
+        messenger.setMockMethodCallHandler(notificationChannel, null);
+      });
+      final service = StudyReminderService(
+        notifications: DeviceReminderNotifications(),
+        preferences: await SharedPreferences.getInstance(),
+      );
+      final result = await service.enable(
+        const TimeOfDay(hour: 20, minute: 35),
+      );
+      expect(result.enabled, isTrue);
+      expect(result.exact, isFalse);
+      expect(scheduled?['timeZoneName'], 'Asia/Saigon');
+      expect(scheduled?['scheduledDateTime'], contains('20:35:00'));
+      expect(scheduled?['payload'], 'study_reminder');
+      expect((await service.load()).timeLabel, '20:35');
+    },
+  );
+
   test(
     'next reminder uses local time and advances to next day once the minute passed',
     () {
