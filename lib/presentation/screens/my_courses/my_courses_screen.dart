@@ -10,6 +10,8 @@ import '../../../data/repositories/quiz_repository.dart';
 import '../../widgets/app_button.dart';
 import '../../widgets/state_views.dart';
 import '../learning/learning_space_screen.dart';
+import '../course_detail/course_detail_screen.dart';
+import '../instructor/instructor_screen.dart';
 import '../quiz/quiz_intro_screen.dart';
 import 'my_courses_controller.dart';
 import 'certificate_screen.dart';
@@ -541,14 +543,22 @@ class _LearningCourseCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 7),
                 ],
-                Text(
-                  course.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.titleMedium.copyWith(
-                    fontWeight: FontWeight.w800,
-                    height: 1.45,
-                    color: AppColors.textHeading,
+                InkWell(
+                  borderRadius: BorderRadius.circular(6),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => CourseDetailScreen(course: course),
+                    ),
+                  ),
+                  child: Text(
+                    course.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.titleMedium.copyWith(
+                      fontWeight: FontWeight.w800,
+                      height: 1.45,
+                      color: AppColors.textHeading,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -557,11 +567,20 @@ class _LearningCourseCard extends StatelessWidget {
                   runSpacing: 6,
                   children: [
                     if (course.instructor.isNotEmpty)
-                      _meta(Icons.person_outline_rounded, course.instructor),
-                    if (course.lessonsCount > 0)
-                      _meta(
-                        Icons.play_lesson_outlined,
-                        '${course.lessonsCount} bài học',
+                      InkWell(
+                        borderRadius: BorderRadius.circular(6),
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => InstructorScreen(course: course),
+                          ),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 6),
+                          child: _meta(
+                            Icons.person_outline_rounded,
+                            course.instructor,
+                          ),
+                        ),
                       ),
                   ],
                 ),
