@@ -4,7 +4,9 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/utils/json_utils.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../data/repositories/order_repository.dart';
+import '../../widgets/app_button.dart';
 import '../../widgets/state_views.dart';
+import 'resume_payment.dart';
 import '../learning_support/paged_collection.dart';
 
 String orderMoney(dynamic value) {
@@ -68,6 +70,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
     (o) => JsonUtils.asString(o['orderId']),
   );
   bool _opening = false;
+  String? _payingId; // đơn đang được mở thanh toán
   @override
   void initState() {
     super.initState();
@@ -99,6 +102,18 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
       if (mounted) await _list.load();
     } finally {
       _opening = false;
+    }
+  }
+
+  /// Đơn "Chờ thanh toán": bấm vào là sang thanh toán luôn (VNPay), xong thì tải lại danh sách
+  Future<void> _pay(String id) async {
+    if (_payingId != null) return;
+    setState(() => _payingId = id);
+    try {
+      final changed = await ResumePayment.start(context, _repo, id);
+      if (changed && mounted) await _list.load();
+    } finally {
+      if (mounted) setState(() => _payingId = null);
     }
   }
 
@@ -144,8 +159,14 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                       ),
                       clipBehavior: Clip.antiAlias,
                       child: InkWell(
-                        onTap: () =>
-                            _open(JsonUtils.asString(order['orderId'])),
+                        onTap: () {
+                          final id = JsonUtils.asString(order['orderId']);
+                          if (JsonUtils.asString(order['status']) == 'pending') {
+                            _pay(id);
+                          } else {
+                            _open(id);
+                          }
+                        },
                         child: Padding(
                           padding: const EdgeInsets.all(18),
                           child: Column(
@@ -220,6 +241,43 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                                   ),
                                 ],
                               ),
+                              if (JsonUtils.asString(order['status']) ==
+                                  'pending') ...[
+                                const SizedBox(height: 14),
+                                Row(
+                                  children: [
+                                    TextButton(
+                                      onPressed: () => _open(
+                                        JsonUtils.asString(order['orderId']),
+                                      ),
+                                      child: const Text('Chi tiết'),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: AppButton(
+                                        text: 'Thanh toán ngay',
+                                        height: 44,
+                                        isLoading:
+                                            _payingId ==
+                                            JsonUtils.asString(
+                                              order['orderId'],
+                                            ),
+                                        icon: const Icon(
+                                          Icons.lock_outline_rounded,
+                                          size: 18,
+                                        ),
+                                        onPressed: _payingId != null
+                                            ? null
+                                            : () => _pay(
+                                                JsonUtils.asString(
+                                                  order['orderId'],
+                                                ),
+                                              ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ],
                           ),
                         ),
@@ -265,6 +323,22 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
   Map<String, dynamic>? _order;
   Object? _error;
   bool _loading = true;
+  bool _paying = false;
+
+  Future<void> _pay() async {
+    if (_paying) return;
+    setState(() => _paying = true);
+    try {
+      final changed = await ResumePayment.start(
+        context,
+        widget.repository,
+        widget.orderId,
+      );
+      if (changed && mounted) await _load();
+    } finally {
+      if (mounted) setState(() => _paying = false);
+    }
+  }
   @override
   void initState() {
     super.initState();
@@ -292,6 +366,22 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(title: const Text('Chi tiết đơn hàng')),
+      bottomNavigationBar:
+          !_loading &&
+              _error == null &&
+              JsonUtils.asString(order['status']) == 'pending'
+          ? SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                child: AppButton(
+                  text: 'Thanh toán đơn hàng',
+                  isLoading: _paying,
+                  icon: const Icon(Icons.lock_outline_rounded, size: 20),
+                  onPressed: _paying ? null : _pay,
+                ),
+              ),
+            )
+          : null,
       body: _loading
           ? const LoadingView()
           : _error != null
