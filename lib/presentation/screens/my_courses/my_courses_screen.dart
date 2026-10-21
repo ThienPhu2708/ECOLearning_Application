@@ -20,6 +20,7 @@ import '../../../data/repositories/review_repository.dart';
 
 /// G1: owned courses from the API, without a mock-data fallback.
 class MyCoursesScreen extends StatefulWidget {
+  final bool isActive;
   final Function(int tabIndex)? onNavigateTab;
   final LearningRepository? repository;
   final QuizRepository? quizRepository;
@@ -29,6 +30,7 @@ class MyCoursesScreen extends StatefulWidget {
 
   const MyCoursesScreen({
     super.key,
+    this.isActive = true,
     this.onNavigateTab,
     this.repository,
     this.quizRepository,
@@ -42,7 +44,7 @@ class MyCoursesScreen extends StatefulWidget {
 }
 
 class _MyCoursesScreenState extends State<MyCoursesScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final TabController _tabs;
   late final MyCoursesController _controller;
   String? _openingId;
@@ -51,6 +53,7 @@ class _MyCoursesScreenState extends State<MyCoursesScreen>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _tabs = TabController(length: 2, vsync: this);
     _controller = MyCoursesController(
       widget.repository ??
@@ -61,7 +64,21 @@ class _MyCoursesScreenState extends State<MyCoursesScreen>
   }
 
   @override
+  void didUpdateWidget(covariant MyCoursesScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive && !oldWidget.isActive) _controller.load();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && widget.isActive) {
+      _controller.load();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _controller.dispose();
     _tabs.dispose();
     super.dispose();

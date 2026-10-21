@@ -48,6 +48,44 @@ class FakeLearning extends LearningRepository {
 }
 
 void main() {
+  testWidgets(
+    'activating owned courses reloads a newly enrolled course without restarting',
+    (tester) async {
+      GoogleFonts.config.allowRuntimeFetching = false;
+      var enrolled = false;
+      final repo = FakeLearning(
+        (status, _) async => page(
+          enrolled && status == MyCourseStatus.inProgress
+              ? [course('new-enrollment')]
+              : [],
+        ),
+      );
+      Widget screen(bool active) => MaterialApp(
+        home: MyCoursesScreen(
+          key: const ValueKey('owned-courses'),
+          repository: repo,
+          isActive: active,
+        ),
+      );
+      await tester.pumpWidget(screen(false));
+      await tester.pumpAndSettle();
+      expect(find.text('Chưa có khóa học đang học'), findsOneWidget);
+      enrolled = true;
+      await tester.pumpWidget(screen(true));
+      await tester.pumpAndSettle();
+      expect(find.text('Khóa học new-enrollment'), findsOneWidget);
+      expect(
+        repo.calls.where((call) => call.$1 == MyCourseStatus.inProgress),
+        hasLength(2),
+      );
+      final calls = repo.calls.length;
+      await tester.pumpWidget(screen(true));
+      await tester.pumpAndSettle();
+      expect(repo.calls, hasLength(calls));
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
   setUpAll(() => GoogleFonts.config.allowRuntimeFetching = false);
 
   test(

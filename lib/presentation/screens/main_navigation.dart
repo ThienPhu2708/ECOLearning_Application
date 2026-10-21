@@ -106,7 +106,10 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           HomeScreen(key: _homeKey, onNavigateTab: _onTabSelected),
           const ExploreScreen(),
           signedIn
-              ? MyCoursesScreen(onNavigateTab: _onTabSelected)
+              ? MyCoursesScreen(
+                  isActive: _currentIndex == 2,
+                  onNavigateTab: _onTabSelected,
+                )
               : const SignInRequired(),
           signedIn
               ? ProfileScreen(isActive: _currentIndex == 3)

@@ -72,6 +72,100 @@ class FakeLearning extends LearningRepository {
 const offline = ApiException(message: 'Mất kết nối', code: 'NETWORK');
 void main() {
   setUpAll(() => GoogleFonts.config.allowRuntimeFetching = false);
+  LearningOverview sequential({bool firstDone = false, String? resume}) =>
+      LearningOverview(
+        courseId: 'course',
+        title: 'Course',
+        progress: firstDone ? 33 : 0,
+        currentLessonId: resume,
+        chapters: [
+          Chapter(
+            id: 'one',
+            title: 'Chapter one',
+            lessons: [makeLesson('a', completed: firstDone)],
+          ),
+          Chapter(
+            id: 'two',
+            title: 'Chapter two',
+            lessons: [makeLesson('b'), makeLesson('c')],
+          ),
+        ],
+        quizAvailable: false,
+        quizPassed: false,
+        certificateIssued: false,
+        canReview: false,
+      );
+
+  test(
+    'locked resume falls back to first available lesson and locked selections never fetch video',
+    () async {
+      final repo = FakeLearning()
+        ..readOverview = (() async => sequential(resume: 'c'));
+      final controller = LearningController(repo, 'course');
+      await controller.load();
+      expect(controller.current?.id, 'a');
+      expect(controller.isUnlocked('a'), isTrue);
+      expect(controller.isUnlocked('b'), isFalse);
+      expect(
+        await controller.select(makeLesson('b', completed: true)),
+        isFalse,
+      );
+      expect(
+        await controller.select(makeLesson('unknown', completed: true)),
+        isFalse,
+      );
+      expect(repo.selected, ['a']);
+      controller.dispose();
+    },
+  );
+
+  test(
+    'next chapter unlocks only after server confirms completion, never from local eighty percent',
+    () async {
+      final repo = FakeLearning()..readOverview = (() async => sequential());
+      final controller = LearningController(repo, 'course');
+      await controller.load();
+      await controller.save('a', 95, 100);
+      expect(controller.isUnlocked('b'), isFalse);
+      repo.write = (_, position, duration) async =>
+          const ProgressResult(lessonCompleted: true, courseProgress: 33);
+      repo.readOverview = () async => sequential(firstDone: true);
+      await controller.save('a', 80, 100);
+      expect(controller.isUnlocked('b'), isTrue);
+      expect(controller.isUnlocked('c'), isFalse);
+      expect(await controller.select(makeLesson('b')), isTrue);
+      expect(controller.current?.id, 'b');
+      controller.dispose();
+    },
+  );
+
+  testWidgets(
+    'locked lesson shows lock and explanation without navigating to its video',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final repo = FakeLearning()..readOverview = (() async => sequential());
+      await tester.pumpWidget(
+        MaterialApp(
+          home: LearningSpaceScreen(
+            course: Course.fromJson({'id': 'course', 'title': 'Course'}),
+            repository: repo,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.lock_outline_rounded), findsNWidgets(2));
+      await tester.ensureVisible(find.text('Lesson b'));
+      await tester.tap(find.text('Lesson b'));
+      await tester.pumpAndSettle();
+      expect(repo.selected, ['a']);
+      expect(find.textContaining('Cần xem ít nhất 80%'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
   test('resume uses server lesson, or first unfinished when absent', () async {
     final repo = FakeLearning();
     final c = LearningController(repo, 'course');

@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import '../../../core/network/api_exception.dart';
 
 import '../../../data/models/lesson.dart';
 import '../../../data/repositories/learning_repository.dart';
@@ -20,6 +21,17 @@ class LearningController extends ChangeNotifier {
   final Map<String, (int, int)> _pending = {};
 
   List<Chapter> get chapters => overview?.chapters ?? [];
+
+  /// Same sequential lesson rule as the web, across chapter boundaries.
+  bool isUnlocked(String lessonId) {
+    final lessons = chapters.expand((c) => c.lessons).toList();
+    final index = lessons.indexWhere((l) => l.id == lessonId);
+    return index >= 0 &&
+        (index == 0 ||
+            lessons[index].isCompleted ||
+            lessons[index - 1].isCompleted);
+  }
+
   double get progress => overview?.progress.clamp(0, 100).toDouble() ?? 0;
   bool get canReview =>
       (overview?.canReview ?? false) &&
@@ -42,9 +54,9 @@ class LearningController extends ChangeNotifier {
       current = null;
       if (lessons.isNotEmpty) {
         final chosen = lessons.firstWhere(
-          (l) => l.id == data.currentLessonId,
+          (l) => l.id == data.currentLessonId && isUnlocked(l.id),
           orElse: () => lessons.firstWhere(
-            (l) => !l.isCompleted,
+            (l) => !l.isCompleted && isUnlocked(l.id),
             orElse: () => lessons.first,
           ),
         );
@@ -64,6 +76,15 @@ class LearningController extends ChangeNotifier {
 
   Future<bool> select(Lesson lesson) async {
     if (selecting || _disposed) return false;
+    if (!isUnlocked(lesson.id)) {
+      error = const ApiException(
+        code: 'LESSON_LOCKED',
+        message:
+            'Cần xem ít nhất 80% bài trước và lưu tiến độ thành công để mở bài này.',
+      );
+      _emit();
+      return false;
+    }
     final request = ++_request;
     selecting = true;
     error = null;

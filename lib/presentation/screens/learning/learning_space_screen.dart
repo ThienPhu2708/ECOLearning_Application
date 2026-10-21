@@ -1,12 +1,13 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'lesson_video_player.dart';
 import '../learning_support/learning_data_scope.dart';
 import 'package:video_player/video_player.dart';
 import '../../../core/config/api_config.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_dimens.dart';
 import '../../../core/constants/app_typography.dart';
-import '../../../core/utils/formatters.dart';
 import '../../../data/models/course.dart';
 import '../../../data/models/lesson.dart';
 import '../../../data/repositories/learning_repository.dart';
@@ -38,14 +39,14 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
   late final TabController _tabs;
   VideoPlayerController? _video;
   Timer? _saveTimer;
-  Timer? _controlsTimer;
   Object? _videoError;
   bool _videoLoading = false;
-  bool _showControls = true;
   bool _leaving = false;
   bool _allowPop = false;
   bool _switching = false;
+  bool _completionSaveRequested = false;
   int _videoRequest = 0;
+  bool _fullscreenOpen = false;
   Course get _course => widget.course;
   Lesson get _currentLesson => _learning.current!;
   List<Chapter> get _chapters => _learning.chapters;
@@ -91,7 +92,7 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
     setState(() {
       _videoLoading = true;
       _videoError = null;
-      _showControls = true;
+      _completionSaveRequested = false;
     });
     VideoPlayerController? next;
     try {
@@ -108,11 +109,12 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
         return;
       }
       final duration = next.value.duration.inSeconds;
-      await next.seekTo(
-        Duration(
-          seconds: _currentLesson.lastPositionSeconds.clamp(0, duration),
-        ),
-      );
+      final resume = _currentLesson.lastPositionSeconds.clamp(0, duration);
+      // A new stream already starts at zero. Seeking again can issue another
+      // media request and unnecessarily delay the first frame.
+      if (resume > 0) {
+        await next.seekTo(Duration(seconds: resume));
+      }
       if (!mounted || request != _videoRequest) {
         await next.dispose();
         return;
@@ -136,6 +138,16 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
     final v = _video?.value;
     if (v == null) return;
     setState(() {});
+    // Ask the server as soon as the real playback position reaches 80%.
+    // No completion or next-lesson access is granted before its response.
+    if (!_completionSaveRequested &&
+        v.isInitialized &&
+        !v.hasError &&
+        v.duration.inMilliseconds > 0 &&
+        v.position.inMilliseconds >= v.duration.inMilliseconds * .8) {
+      _completionSaveRequested = true;
+      unawaited(_saveProgress());
+    }
     if (v.hasError && _videoError == null) {
       _videoError = StateError('Không phát được video. Vui lòng thử lại.');
       unawaited(_saveProgress());
@@ -188,29 +200,10 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
         await _saveProgress();
       } else {
         await video.play();
-        _resetControlsTimer();
       }
     } catch (e) {
       if (mounted) showErrorSnackBar(context, e);
     }
-  }
-
-  void _resetControlsTimer() {
-    _controlsTimer?.cancel();
-    _controlsTimer = Timer(const Duration(seconds: 4), () {
-      if (mounted && (_video?.value.isPlaying ?? false)) {
-        setState(() => _showControls = false);
-      }
-    });
-  }
-
-  Future<void> _seek(int seconds) async {
-    final video = _video;
-    if (video == null) return;
-    await video.seekTo(
-      Duration(seconds: seconds.clamp(0, video.value.duration.inSeconds)),
-    );
-    _resetControlsTimer();
   }
 
   @override
@@ -298,7 +291,6 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
     WidgetsBinding.instance.removeObserver(this);
     _videoRequest++;
     _saveTimer?.cancel();
-    _controlsTimer?.cancel();
     unawaited(_saveProgress());
     _video?.removeListener(_onVideo);
     unawaited(_video?.dispose());
@@ -311,7 +303,9 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
   @override
   Widget build(BuildContext context) {
     Widget body;
-    if (_learning.loading) {
+    if (_fullscreenOpen) {
+      body = const ColoredBox(color: Colors.black);
+    } else if (_learning.loading) {
       body = const LoadingView(message: 'Đang tải nội dung khóa học…');
     } else if (_learning.current == null) {
       body = _learning.error != null
@@ -378,9 +372,7 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
                   position: () => _video?.value.isInitialized == true
                       ? _video!.value.position.inSeconds
                       : 0,
-                  onSeek: _video?.value.isInitialized == true
-                      ? (seconds) => _video!.seekTo(Duration(seconds: seconds))
-                      : null,
+                  onSeek: null,
                 ),
               ],
             ),
@@ -407,170 +399,85 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
   }
 
   Widget _buildCustomVideoPlayer() {
-    final video = _video;
-    final ready =
-        video != null && video.value.isInitialized && _videoError == null;
-    final position = ready ? video.value.position.inSeconds : 0;
-    final duration = ready ? video.value.duration.inSeconds : 0;
+    final lessons = _chapters.expand((c) => c.lessons).toList();
+    final index = lessons.indexWhere((l) => l.id == _currentLesson.id);
+    final previous = index > 0 ? lessons[index - 1] : null;
+    final next = index >= 0 && index + 1 < lessons.length
+        ? lessons[index + 1]
+        : null;
     return AspectRatio(
       aspectRatio: 16 / 9,
-      child: GestureDetector(
-        onTap: () {
-          setState(() => _showControls = !_showControls);
-          _resetControlsTimer();
-        },
-        child: ColoredBox(
-          color: Colors.black,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              if (ready)
-                Center(
-                  child: AspectRatio(
-                    aspectRatio: video.value.aspectRatio,
-                    child: VideoPlayer(video),
-                  ),
-                ),
-              if (_videoLoading || _learning.selecting)
-                const CircularProgressIndicator(color: Colors.white),
-              if (_videoError != null)
-                Padding(
-                  padding: const EdgeInsets.all(32),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Text(
-                        'Không tải được video bài học',
-                        style: TextStyle(color: Colors.white),
-                      ),
-                      TextButton(
-                        onPressed: _openVideo,
-                        child: const Text('Thử lại'),
-                      ),
-                    ],
-                  ),
-                ),
-              if (_showControls && ready) ...[
-                const Positioned.fill(child: ColoredBox(color: Colors.black45)),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    IconButton(
-                      tooltip: 'Lùi 10 giây',
-                      onPressed: () => _seek(position - 10),
-                      icon: const Icon(
-                        Icons.replay_10_rounded,
-                        color: Colors.white,
-                        size: 32,
-                      ),
-                    ),
-                    const SizedBox(width: 24),
-                    IconButton.filled(
-                      style: IconButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                      ),
-                      tooltip: video.value.isPlaying
-                          ? 'Tạm dừng'
-                          : 'Phát video',
-                      onPressed: _togglePlayback,
-                      iconSize: 36,
-                      icon: Icon(
-                        video.value.isPlaying
-                            ? Icons.pause_rounded
-                            : Icons.play_arrow_rounded,
-                      ),
-                    ),
-                    const SizedBox(width: 24),
-                    IconButton(
-                      tooltip: 'Tới 10 giây',
-                      onPressed: () => _seek(position + 10),
-                      icon: const Icon(
-                        Icons.forward_10_rounded,
-                        color: Colors.white,
-                        size: 32,
-                      ),
-                    ),
-                  ],
-                ),
-                Positioned(
-                  top: 4,
-                  right: 8,
-                  child: PopupMenuButton<double>(
-                    tooltip: 'Tốc độ phát',
-                    initialValue: video.value.playbackSpeed,
-                    onSelected: (speed) async {
-                      await video.setPlaybackSpeed(speed);
-                      _resetControlsTimer();
-                    },
-                    itemBuilder: (_) => [
-                      for (final speed in [.75, 1.0, 1.25, 1.5, 2.0])
-                        PopupMenuItem(value: speed, child: Text('${speed}x')),
-                    ],
-                    child: Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: Text(
-                        '${video.value.playbackSpeed}x',
-                        style: const TextStyle(color: Colors.white),
-                      ),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  left: 12,
-                  right: 12,
-                  bottom: 6,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      SizedBox(
-                        height: 26,
-                        child: Slider(
-                          value: position.clamp(0, duration).toDouble(),
-                          max: duration > 0 ? duration.toDouble() : 1,
-                          onChanged: (value) => _seek(value.toInt()),
-                          onChangeEnd: (_) => _saveProgress(),
-                        ),
-                      ),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            AppFormatters.formatDurationFromSeconds(position),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 11,
-                            ),
-                          ),
-                          Text(
-                            AppFormatters.formatDurationFromSeconds(duration),
-                            style: const TextStyle(
-                              color: Colors.white70,
-                              fontSize: 11,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-              Positioned(
-                top: 4,
-                left: 4,
-                child: IconButton(
-                  tooltip: 'Quay lại',
-                  onPressed: _leave,
-                  icon: const Icon(
-                    Icons.arrow_back_rounded,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
+      child: LessonVideoPlayer(
+        controller: _video,
+        title: _currentLesson.title,
+        posterUrl: _course.imageUrl,
+        loading: _videoLoading || _learning.selecting,
+        error: _videoError,
+        onBack: _leave,
+        onRetry: _openVideo,
+        onPlayPause: _togglePlayback,
+        onFullscreen: _showFullscreen,
+        onPrevious:
+            previous != null &&
+                _learning.isUnlocked(previous.id) &&
+                !_videoLoading &&
+                !_learning.selecting
+            ? () => _selectLesson(previous)
+            : null,
+        onNext:
+            next != null &&
+                _learning.isUnlocked(next.id) &&
+                !_videoLoading &&
+                !_learning.selecting
+            ? () => _selectLesson(next)
+            : null,
       ),
     );
+  }
+
+  Future<void> _showFullscreen() async {
+    final video = _video;
+    if (_fullscreenOpen || video == null || !video.value.isInitialized) return;
+    setState(() => _fullscreenOpen = true);
+    var retry = false;
+    try {
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+      await SystemChrome.setPreferredOrientations([
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+      if (!mounted) return;
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          builder: (fullscreenContext) => Scaffold(
+            backgroundColor: Colors.black,
+            body: SafeArea(
+              child: LessonVideoPlayer(
+                controller: video,
+                title: _currentLesson.title,
+                fullscreen: true,
+                loading: false,
+                error: null,
+                onBack: () => Navigator.pop(fullscreenContext),
+                onRetry: () {
+                  retry = true;
+                  Navigator.pop(fullscreenContext);
+                },
+                onPlayPause: _togglePlayback,
+                onFullscreen: () => Navigator.pop(fullscreenContext),
+              ),
+            ),
+          ),
+        ),
+      );
+    } finally {
+      await SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+      ]);
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      if (mounted) setState(() => _fullscreenOpen = false);
+    }
+    if (retry && mounted) await _openVideo();
   }
 
   // Khối thông tin bài học & Thanh tiến độ khóa học
@@ -581,6 +488,15 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Text(
+            _course.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTypography.captionTiny.copyWith(
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 7),
           Row(
             children: [
               Expanded(
@@ -641,10 +557,30 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
               ),
               const SizedBox(width: AppDimens.p12),
               Text(
-                '${_learning.progress.toInt()}% Hoàn thành',
+                '${_learning.progress.toInt()}% khóa học',
                 style: AppTypography.captionTiny.copyWith(
                   color: AppColors.primary,
                   fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(
+                Icons.verified_outlined,
+                size: 14,
+                color: AppColors.textMuted,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'Xem đủ 80% để hoàn thành và mở bài tiếp theo.',
+                  style: AppTypography.captionTiny.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
                 ),
               ),
             ],
@@ -691,6 +627,8 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
                         leading: Icon(
                           lesson.isCompleted
                               ? Icons.check_circle_rounded
+                              : !_learning.isUnlocked(lesson.id)
+                              ? Icons.lock_outline_rounded
                               : lesson.id == _currentLesson.id
                               ? Icons.play_circle_fill_rounded
                               : Icons.play_circle_outline_rounded,
@@ -709,7 +647,9 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
                           ),
                         ),
                         subtitle: Text(
-                          lesson.duration,
+                          _learning.isUnlocked(lesson.id)
+                              ? lesson.duration
+                              : '${lesson.duration} · Hoàn thành 80% bài trước để mở',
                           style: AppTypography.captionTiny.copyWith(
                             color: AppColors.textSecondary,
                           ),
