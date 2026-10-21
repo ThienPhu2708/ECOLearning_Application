@@ -183,11 +183,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('5 khóa học đã lưu'), findsOneWidget);
       await tester.scrollUntilVisible(
-        find.text('Xem thêm'),
+        find.byTooltip('Trang sau'),
         200,
         scrollable: find.byType(Scrollable).first,
       );
-      await tester.tap(find.text('Xem thêm'));
+      await tester.tap(find.byTooltip('Trang sau'));
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
         find.byTooltip('Bỏ yêu thích ${course.title}'),

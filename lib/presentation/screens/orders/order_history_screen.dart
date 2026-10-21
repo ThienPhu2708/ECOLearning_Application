@@ -1,3 +1,6 @@
+import '../../widgets/list_search_field.dart';
+import '../learning_support/search_pages.dart';
+import '../../widgets/pagination_bar.dart';
 import 'package:flutter/material.dart';
 import '../learning_support/learning_data_scope.dart';
 import '../../../core/constants/app_colors.dart';
@@ -65,8 +68,15 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
       widget.repository ??
       LearningDataScope.read(context)?.orders ??
       OrderRepository();
+  String _query = '';
   late final PagedCollection<Map<String, dynamic>> _list = PagedCollection(
-    (page) => _repo.orders(page: page),
+    (page) => searchPages<Map<String, dynamic>>(
+      fetch: (page) => _repo.orders(page: page),
+      query: _query,
+      text: (order) => JsonUtils.asString(order['orderId']),
+      id: (order) => JsonUtils.asString(order['orderId']),
+      page: page,
+    ),
     (o) => JsonUtils.asString(o['orderId']),
   );
   bool _opening = false;
@@ -121,189 +131,214 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: AppColors.background,
     appBar: AppBar(title: const Text('Lịch sử đơn hàng')),
-    body: _list.loading && _list.items.isEmpty
-        ? const LoadingView()
-        : _list.error != null && _list.items.isEmpty
-        ? ErrorView(error: _list.error, onRetry: _list.load)
-        : RefreshIndicator(
-            onRefresh: _list.load,
-            child: ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(16),
-              children: [
-                if (_list.items.isEmpty)
-                  const SizedBox(
-                    height: 380,
-                    child: EmptyView(
-                      icon: Icons.receipt_long_outlined,
-                      title: 'Bạn chưa có đơn hàng',
-                      message: 'Các đơn mua khóa học sẽ xuất hiện tại đây.',
-                    ),
-                  ),
-                if (_list.items.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(4, 0, 4, 16),
-                    child: Text(
-                      '${_list.total} đơn hàng',
-                      style: const TextStyle(color: AppColors.textSecondary),
-                    ),
-                  ),
-                for (final order in _list.items)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 16),
-                    child: Material(
-                      color: AppColors.surface,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        side: const BorderSide(color: AppColors.border),
-                      ),
-                      clipBehavior: Clip.antiAlias,
-                      child: InkWell(
-                        onTap: () {
-                          final id = JsonUtils.asString(order['orderId']);
-                          if (JsonUtils.asString(order['status']) == 'pending') {
-                            _pay(id);
-                          } else {
-                            _open(id);
-                          }
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.all(18),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Icon(
-                                    Icons.receipt_long_outlined,
-                                    color: AppColors.primary,
-                                    size: 22,
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Text(
-                                      JsonUtils.asString(order['orderId']),
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                  ),
-                                  const Icon(
-                                    Icons.chevron_right,
-                                    color: AppColors.textMuted,
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 10),
-                              Text(
-                                orderDate(order['createdAt']),
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  color: AppColors.textSecondary,
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              Wrap(
-                                spacing: 16,
-                                runSpacing: 10,
-                                crossAxisAlignment: WrapCrossAlignment.center,
-                                children: [
-                                  orderStatus(order),
-                                  Text(
-                                    '${JsonUtils.asInt(order['itemsCount'])} khóa học',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: AppColors.textSecondary,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const Divider(height: 28),
-                              Row(
-                                children: [
-                                  const Expanded(
-                                    child: Text(
-                                      'Tổng thanh toán',
-                                      style: TextStyle(
-                                        color: AppColors.textSecondary,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                  ),
-                                  Text(
-                                    orderMoney(order['total']),
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                      color: AppColors.primary,
-                                      fontSize: 17,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              if (JsonUtils.asString(order['status']) ==
-                                  'pending') ...[
-                                const SizedBox(height: 14),
-                                Row(
+    body: Column(
+      children: [
+        ListSearchField(
+          hint: 'Tìm mã đơn hàng...',
+          onChanged: (value) {
+            _query = value;
+            _list.load();
+          },
+        ),
+        Expanded(
+          child: _list.loading && _list.items.isEmpty
+              ? const LoadingView()
+              : _list.error != null && _list.items.isEmpty
+              ? ErrorView(error: _list.error, onRetry: _list.load)
+              : RefreshIndicator(
+                  onRefresh: _list.load,
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(16),
+                    children: [
+                      if (_list.items.isEmpty)
+                        SizedBox(
+                          height: 380,
+                          child: EmptyView(
+                            icon: Icons.receipt_long_outlined,
+                            title: _query.isEmpty
+                                ? 'Bạn chưa có đơn hàng'
+                                : 'Không tìm thấy đơn hàng',
+                            message: _query.isEmpty
+                                ? 'Các đơn mua khóa học sẽ xuất hiện tại đây.'
+                                : 'Thử tìm bằng mã đơn hàng khác.',
+                          ),
+                        ),
+                      if (_list.items.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(4, 0, 4, 16),
+                          child: Text(
+                            '${_list.total} đơn hàng',
+                            style: const TextStyle(
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ),
+                      for (final order in _list.items)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: Material(
+                            color: AppColors.surface,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                              side: const BorderSide(color: AppColors.border),
+                            ),
+                            clipBehavior: Clip.antiAlias,
+                            child: InkWell(
+                              onTap: () {
+                                final id = JsonUtils.asString(order['orderId']);
+                                if (JsonUtils.asString(order['status']) ==
+                                    'pending') {
+                                  _pay(id);
+                                } else {
+                                  _open(id);
+                                }
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.all(18),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    TextButton(
-                                      onPressed: () => _open(
-                                        JsonUtils.asString(order['orderId']),
-                                      ),
-                                      child: const Text('Chi tiết'),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: AppButton(
-                                        text: 'Thanh toán ngay',
-                                        height: 44,
-                                        isLoading:
-                                            _payingId ==
+                                    Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        const Icon(
+                                          Icons.receipt_long_outlined,
+                                          color: AppColors.primary,
+                                          size: 22,
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: Text(
                                             JsonUtils.asString(
                                               order['orderId'],
                                             ),
-                                        icon: const Icon(
-                                          Icons.lock_outline_rounded,
-                                          size: 18,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
                                         ),
-                                        onPressed: _payingId != null
-                                            ? null
-                                            : () => _pay(
-                                                JsonUtils.asString(
-                                                  order['orderId'],
-                                                ),
-                                              ),
+                                        const Icon(
+                                          Icons.chevron_right,
+                                          color: AppColors.textMuted,
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 10),
+                                    Text(
+                                      orderDate(order['createdAt']),
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: AppColors.textSecondary,
                                       ),
                                     ),
+                                    const SizedBox(height: 16),
+                                    Wrap(
+                                      spacing: 16,
+                                      runSpacing: 10,
+                                      crossAxisAlignment:
+                                          WrapCrossAlignment.center,
+                                      children: [
+                                        orderStatus(order),
+                                        Text(
+                                          '${JsonUtils.asInt(order['itemsCount'])} khóa học',
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            color: AppColors.textSecondary,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const Divider(height: 28),
+                                    Row(
+                                      children: [
+                                        const Expanded(
+                                          child: Text(
+                                            'Tổng thanh toán',
+                                            style: TextStyle(
+                                              color: AppColors.textSecondary,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                        ),
+                                        Text(
+                                          orderMoney(order['total']),
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                            color: AppColors.primary,
+                                            fontSize: 17,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    if (JsonUtils.asString(order['status']) ==
+                                        'pending') ...[
+                                      const SizedBox(height: 14),
+                                      Row(
+                                        children: [
+                                          TextButton(
+                                            onPressed: () => _open(
+                                              JsonUtils.asString(
+                                                order['orderId'],
+                                              ),
+                                            ),
+                                            child: const Text('Chi tiết'),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            child: AppButton(
+                                              text: 'Thanh toán ngay',
+                                              height: 44,
+                                              isLoading:
+                                                  _payingId ==
+                                                  JsonUtils.asString(
+                                                    order['orderId'],
+                                                  ),
+                                              icon: const Icon(
+                                                Icons.lock_outline_rounded,
+                                                size: 18,
+                                              ),
+                                              onPressed: _payingId != null
+                                                  ? null
+                                                  : () => _pay(
+                                                      JsonUtils.asString(
+                                                        order['orderId'],
+                                                      ),
+                                                    ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
                                   ],
                                 ),
-                              ],
-                            ],
+                              ),
+                            ),
                           ),
                         ),
+                      if (_list.error != null)
+                        Text(
+                          errorMessage(_list.error!),
+                          style: const TextStyle(color: AppColors.error),
+                        ),
+                      if (_list.error != null)
+                        TextButton(
+                          onPressed: () => _list.load(),
+                          child: const Text('Tải lại danh sách'),
+                        ),
+                      PaginationBar(
+                        page: _list.page,
+                        totalPages: _list.totalPages,
+                        enabled: !_list.loading,
+                        onPageChanged: (page) => _list.load(targetPage: page),
                       ),
-                    ),
+                    ],
                   ),
-                if (_list.error != null)
-                  Text(
-                    errorMessage(_list.error!),
-                    style: const TextStyle(color: AppColors.error),
-                  ),
-                if (_list.error != null)
-                  TextButton(
-                    onPressed: () => _list.load(),
-                    child: const Text('Tải lại danh sách'),
-                  ),
-                if (_list.hasMore)
-                  TextButton(
-                    onPressed: _list.loadingMore
-                        ? null
-                        : () => _list.load(more: true),
-                    child: Text(_list.loadingMore ? 'Đang tải…' : 'Xem thêm'),
-                  ),
-              ],
-            ),
-          ),
+                ),
+        ),
+      ],
+    ),
   );
 }
 
@@ -339,6 +374,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       if (mounted) setState(() => _paying = false);
     }
   }
+
   @override
   void initState() {
     super.initState();

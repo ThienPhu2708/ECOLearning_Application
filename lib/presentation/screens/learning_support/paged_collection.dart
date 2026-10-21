@@ -7,6 +7,8 @@ class PagedCollection<T> extends ChangeNotifier {
   final String Function(T value) id;
   List<T> items = [];
   int total = 0;
+  int totalPages = 0;
+  int get page => _page;
   bool loading = false;
   bool loadingMore = false;
   bool hasMore = false;
@@ -19,10 +21,10 @@ class PagedCollection<T> extends ChangeNotifier {
     if (!_disposed) notifyListeners();
   }
 
-  Future<void> load({bool more = false}) async {
+  Future<void> load({bool more = false, int targetPage = 1}) async {
     if (more && (loading || loadingMore || !hasMore)) return;
     final generation = more ? _generation : ++_generation;
-    final page = more ? _page + 1 : 1;
+    final page = more ? _page + 1 : targetPage;
     if (more) {
       loadingMore = true;
     } else {
@@ -41,6 +43,7 @@ class PagedCollection<T> extends ChangeNotifier {
       }
       items = merged.values.toList();
       total = result.total;
+      totalPages = result.totalPages;
       _page = result.page;
       hasMore = result.hasMore;
     } catch (e) {

@@ -1,3 +1,5 @@
+import '../../widgets/list_search_field.dart';
+import '../../widgets/pagination_bar.dart';
 import 'package:flutter/material.dart';
 import '../learning_support/learning_data_scope.dart';
 
@@ -203,7 +205,10 @@ class MyCoursesScreenState extends State<MyCoursesScreen>
           listenable: _controller,
           builder: (context, _) => Column(
             children: [
-              const SizedBox(height: 12),
+              ListSearchField(
+                hint: 'Tìm tên khóa học, giảng viên...',
+                onChanged: _controller.search,
+              ),
               Container(
                 margin: const EdgeInsets.symmetric(horizontal: 16),
                 padding: const EdgeInsets.all(5),
@@ -286,10 +291,14 @@ class MyCoursesScreenState extends State<MyCoursesScreen>
                     icon: completed
                         ? Icons.task_alt_rounded
                         : Icons.menu_book_rounded,
-                    title: completed
+                    title: _controller.query.isNotEmpty
+                        ? 'Không tìm thấy khóa học'
+                        : completed
                         ? 'Chưa có khóa học hoàn tất'
                         : 'Chưa có khóa học đang học',
-                    message: completed
+                    message: _controller.query.isNotEmpty
+                        ? 'Thử tên khóa học hoặc giảng viên khác nha.'
+                        : completed
                         ? 'Các khóa học đủ 100% bài học sẽ xuất hiện tại đây.'
                         : 'Khám phá khóa học mới hoặc xem lại các khóa đã học đủ bài.',
                     actionText: completed
@@ -371,13 +380,13 @@ class MyCoursesScreenState extends State<MyCoursesScreen>
                   onRetry: () => _controller.loadMore(status),
                 );
               }
-              return state.hasMore
-                  ? AppButton(
-                      text: 'Tải thêm khóa học',
-                      type: AppButtonType.secondary,
-                      onPressed: () => _controller.loadMore(status),
-                    )
-                  : const SizedBox.shrink();
+              return PaginationBar(
+                page: state.page,
+                totalPages: state.totalPages,
+                enabled: !state.loading,
+                onPageChanged: (page) =>
+                    _controller.refresh(status, page: page),
+              );
             },
           );
         },

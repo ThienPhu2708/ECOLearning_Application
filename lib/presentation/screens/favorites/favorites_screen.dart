@@ -1,3 +1,4 @@
+import '../../widgets/pagination_bar.dart';
 import 'package:flutter/material.dart';
 import '../learning_support/learning_data_scope.dart';
 import '../../../core/constants/app_colors.dart';
@@ -229,13 +230,12 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
                     onPressed: () => _list.load(),
                     child: const Text('Tải lại danh sách'),
                   ),
-                if (_list.hasMore)
-                  TextButton(
-                    onPressed: _list.loadingMore
-                        ? null
-                        : () => _list.load(more: true),
-                    child: Text(_list.loadingMore ? 'Đang tải…' : 'Xem thêm'),
-                  ),
+                PaginationBar(
+                  page: _list.page,
+                  totalPages: _list.totalPages,
+                  enabled: !_list.loading,
+                  onPageChanged: (page) => _list.load(targetPage: page),
+                ),
               ],
             ),
           ),

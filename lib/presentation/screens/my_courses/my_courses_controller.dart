@@ -1,3 +1,4 @@
+import '../learning_support/search_pages.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../../data/models/course.dart';
@@ -7,6 +8,7 @@ class MyCoursesPageState {
   List<Course> courses = [];
   int? total;
   int page = 0;
+  int totalPages = 0;
   bool hasMore = false;
   bool loading = true;
   bool loadingMore = false;
@@ -20,6 +22,12 @@ class MyCoursesController extends ChangeNotifier {
   MyCoursesController(this.repository);
 
   final LearningRepository repository;
+  String query = '';
+  Future<void> search(String value) {
+    query = value;
+    return load();
+  }
+
   final ongoing = MyCoursesPageState();
   final completed = MyCoursesPageState();
   bool _disposed = false;
@@ -32,7 +40,7 @@ class MyCoursesController extends ChangeNotifier {
     refresh(MyCourseStatus.completed),
   ]);
 
-  Future<void> refresh(String status) async {
+  Future<void> refresh(String status, {int page = 1}) async {
     final state = stateFor(status);
     final request = ++state.request;
     state.loading = true;
@@ -41,10 +49,17 @@ class MyCoursesController extends ChangeNotifier {
     state.moreError = null;
     _emit();
     try {
-      final result = await repository.myCourses(status: status);
+      final result = await searchPages<Course>(
+        fetch: (page) => repository.myCourses(status: status, page: page),
+        query: query,
+        text: (course) => '${course.title} ${course.instructor}',
+        id: (course) => course.id,
+        page: page,
+      );
       if (_disposed || request != state.request) return;
       state.courses = _unique(result.items);
       state.total = result.total;
+      state.totalPages = result.totalPages;
       state.page = result.page;
       state.hasMore = result.hasMore;
     } catch (error) {
@@ -75,6 +90,7 @@ class MyCoursesController extends ChangeNotifier {
       if (_disposed || request != state.request) return;
       state.courses = _unique([...state.courses, ...result.items]);
       state.total = result.total;
+      state.totalPages = result.totalPages;
       state.page = result.page;
       state.hasMore = result.hasMore;
     } catch (error) {
