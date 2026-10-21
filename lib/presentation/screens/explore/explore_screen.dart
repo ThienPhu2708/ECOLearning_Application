@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_dimens.dart';
 import '../../../core/constants/app_typography.dart';
-import '../../../data/mock_data.dart';
+import '../../../data/repositories/course_repository.dart';
+import '../learning_support/learning_data_scope.dart';
+import '../../widgets/state_views.dart';
 import '../../../data/models/course.dart';
 import '../../widgets/course_card.dart';
 import '../course_detail/course_detail_screen.dart';
@@ -21,37 +24,81 @@ class _ExploreScreenState extends State<ExploreScreen> {
   String _searchQuery = '';
   FilterCriteria _filterCriteria = FilterCriteria();
 
+  List<Course> _apiCourses = [];
+  List<String> _keywords = [];
+  bool _loading = true, _loadingMore = false, _hasMore = false;
+  Object? _error;
+  int _page = 1, _request = 0;
+  Timer? _debounce;
+  @override
+  void initState() {
+    super.initState();
+    _searchController.addListener(_schedule);
+    _load();
+  }
+
+  void _schedule() {
+    setState(() => _searchQuery = _searchController.text.trim());
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 350), () => _load());
+  }
+
+  Future<void> _load({bool more = false}) async {
+    if (more && (_loading || _loadingMore || !_hasMore)) return;
+    final request = more ? _request : ++_request;
+    final page = more ? _page + 1 : 1;
+    setState(() {
+      _error = null;
+      if (more) {
+        _loadingMore = true;
+      } else {
+        _loading = true;
+      }
+    });
+    try {
+      final repo =
+          LearningDataScope.read(context)?.courses ?? CourseRepository();
+      final result = await repo.courses(
+        q: _searchQuery,
+        page: page,
+        minRating: _filterCriteria.minRating > 0
+            ? _filterCriteria.minRating
+            : null,
+        level: _filterCriteria.level == 'Tất cả' ? null : _filterCriteria.level,
+        price: _filterCriteria.onlyFree ? 'free' : null,
+      );
+      if (!mounted || request != _request) return;
+      setState(() {
+        _apiCourses = more ? [..._apiCourses, ...result.items] : result.items;
+        _page = result.page;
+        _hasMore = result.hasMore;
+      });
+      if (_keywords.isEmpty) {
+        final categories = await repo.categories();
+        if (mounted && request == _request) {
+          setState(
+            () => _keywords = categories.map((c) => c.name).take(8).toList(),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted && request == _request) setState(() => _error = e);
+    } finally {
+      if (mounted && request == _request) {
+        setState(() {
+          _loading = false;
+          _loadingMore = false;
+        });
+      }
+    }
+  }
+
   bool get _hasActiveFilter =>
       _filterCriteria.minRating > 0 ||
       _filterCriteria.level != 'Tất cả' ||
       _filterCriteria.onlyFree;
 
-  List<Course> get _filteredCourses {
-    return MockData.allCourses.where((course) {
-      // 1. Lọc theo từ khóa tìm kiếm (Title, Instructor, Category)
-      if (_searchQuery.isNotEmpty) {
-        final q = _searchQuery.toLowerCase();
-        final matchTitle = course.title.toLowerCase().contains(q);
-        final matchInstructor = course.instructor.toLowerCase().contains(q);
-        final matchCat = course.category.toLowerCase().contains(q);
-        if (!matchTitle && !matchInstructor && !matchCat) return false;
-      }
-
-      // 2. Lọc theo xếp hạng sao
-      if (course.rating < _filterCriteria.minRating) return false;
-
-      // 3. Lọc theo cấp độ
-      if (_filterCriteria.level != 'Tất cả' &&
-          !course.level.toLowerCase().contains(_filterCriteria.level.toLowerCase())) {
-        return false;
-      }
-
-      // 4. Lọc theo giá miễn phí
-      if (_filterCriteria.onlyFree && !course.isFree) return false;
-
-      return true;
-    }).toList();
-  }
+  List<Course> get _filteredCourses => _apiCourses;
 
   void _openFilter() {
     FilterBottomSheet.show(
@@ -61,6 +108,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
         setState(() {
           _filterCriteria = newCriteria;
         });
+        _load();
       },
     );
   }
@@ -74,6 +122,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
   @override
   void dispose() {
+    _debounce?.cancel();
+    _searchController.removeListener(_schedule);
     _searchController.dispose();
     super.dispose();
   }
@@ -96,7 +146,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
                   Expanded(
                     child: TextField(
                       controller: _searchController,
-                      onChanged: (val) => setState(() => _searchQuery = val.trim()),
                       decoration: InputDecoration(
                         hintText: 'Tìm khóa học, giảng viên, kỹ năng...',
                         prefixIcon: const Icon(Icons.search_rounded),
@@ -153,27 +202,38 @@ class _ExploreScreenState extends State<ExploreScreen> {
               child: ListView.separated(
                 padding: const EdgeInsets.symmetric(horizontal: AppDimens.p16),
                 scrollDirection: Axis.horizontal,
-                itemCount: MockData.trendingKeywords.length,
-                separatorBuilder: (context, index) => const SizedBox(width: AppDimens.p8),
+                itemCount: _keywords.length,
+                separatorBuilder: (context, index) =>
+                    const SizedBox(width: AppDimens.p8),
                 itemBuilder: (context, index) {
-                  final tag = MockData.trendingKeywords[index];
-                  final isCurrent = _searchQuery.toLowerCase() == tag.toLowerCase();
+                  final tag = _keywords[index];
+                  final isCurrent =
+                      _searchQuery.toLowerCase() == tag.toLowerCase();
 
                   return GestureDetector(
                     onTap: () => _applyKeyword(tag),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
-                        color: isCurrent ? AppColors.primary : AppColors.surface,
+                        color: isCurrent
+                            ? AppColors.primary
+                            : AppColors.surface,
                         borderRadius: BorderRadius.circular(999.0),
                         border: Border.all(
-                          color: isCurrent ? AppColors.primary : AppColors.border,
+                          color: isCurrent
+                              ? AppColors.primary
+                              : AppColors.border,
                         ),
                       ),
                       child: Text(
                         '#$tag',
                         style: AppTypography.captionTiny.copyWith(
-                          color: isCurrent ? Colors.white : AppColors.textSecondary,
+                          color: isCurrent
+                              ? Colors.white
+                              : AppColors.textSecondary,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -221,13 +281,27 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
             // 4. Danh sách khóa học hoặc Trạng thái rỗng
             Expanded(
-              child: courses.isEmpty
+              child: _loading
+                  ? const LoadingView()
+                  : _error != null
+                  ? ErrorView(error: _error, onRetry: _load)
+                  : courses.isEmpty
                   ? _buildEmptyState()
                   : ListView.builder(
                       padding: const EdgeInsets.all(AppDimens.p16),
                       physics: const BouncingScrollPhysics(),
-                      itemCount: courses.length,
+                      itemCount: courses.length + (_hasMore ? 1 : 0),
                       itemBuilder: (context, index) {
+                        if (index == courses.length) {
+                          return TextButton(
+                            onPressed: _loadingMore
+                                ? null
+                                : () => _load(more: true),
+                            child: Text(
+                              _loadingMore ? 'Đang tải…' : 'Xem thêm',
+                            ),
+                          );
+                        }
                         final course = courses[index];
                         return CourseCard(
                           course: course,
@@ -235,7 +309,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
                           onTap: () {
                             Navigator.of(context).push(
                               MaterialPageRoute(
-                                builder: (context) => CourseDetailScreen(course: course),
+                                builder: (context) =>
+                                    CourseDetailScreen(course: course),
                               ),
                             );
                           },
@@ -289,7 +364,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
             ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
               onPressed: () {
                 _searchController.clear();

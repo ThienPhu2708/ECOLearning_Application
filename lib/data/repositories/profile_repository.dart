@@ -1,3 +1,4 @@
+import '../../core/config/api_config.dart';
 import '../../core/network/api_client.dart';
 import '../../core/utils/json_utils.dart';
 import '../models/user.dart';
@@ -8,7 +9,8 @@ class ProfileRepository {
   final ApiClient _api;
 
   /// A8. Thông tin tài khoản + thống kê. Splash gọi để kiểm tra token còn hạn.
-  Future<User> me() async => User.fromJson(JsonUtils.asMap(await _api.get('/me')));
+  Future<User> me() async =>
+      User.fromJson(JsonUtils.asMap(await _api.get('/me')));
 
   /// A9. Sửa thông tin cá nhân
   Future<User> updateMe({
@@ -17,25 +19,36 @@ class ProfileRepository {
     String? gender,
     DateTime? birthDate,
   }) async {
-    final data = await _api.put('/me', data: {
-      'fullName': fullName.trim(),
-      'phone': phone?.trim(),
-      'gender': gender,
-      'birthDate': birthDate == null
-          ? null
-          : '${birthDate.year.toString().padLeft(4, '0')}-${birthDate.month.toString().padLeft(2, '0')}-${birthDate.day.toString().padLeft(2, '0')}',
-    });
+    final data = await _api.put(
+      '/me',
+      data: {
+        'fullName': fullName.trim(),
+        'phone': phone?.trim(),
+        'gender': gender,
+        'birthDate': birthDate == null
+            ? null
+            : '${birthDate.year.toString().padLeft(4, '0')}-${birthDate.month.toString().padLeft(2, '0')}-${birthDate.day.toString().padLeft(2, '0')}',
+      },
+    );
     return User.fromJson(JsonUtils.asMap(data));
   }
 
   /// A10. Đổi ảnh đại diện (file chọn bằng image_picker). Trả đường dẫn ảnh mới.
   Future<String> uploadAvatar(String filePath) async {
     final data = await _api.upload('/me/avatar', filePath: filePath);
-    return JsonUtils.asString(JsonUtils.asMap(data)['avatarUrl']);
+    return ApiConfig.resolveMediaUrl(
+      JsonUtils.asString(JsonUtils.asMap(data)['avatarUrl']),
+    );
   }
 
   /// A11. Đổi mật khẩu
-  Future<void> changePassword({required String currentPassword, required String newPassword}) async {
-    await _api.post('/me/change-password', data: {'currentPassword': currentPassword, 'newPassword': newPassword});
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    await _api.post(
+      '/me/change-password',
+      data: {'currentPassword': currentPassword, 'newPassword': newPassword},
+    );
   }
 }

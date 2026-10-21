@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'models/category.dart';
-import 'models/coupon.dart';
-import 'models/course.dart';
-import 'models/lesson.dart';
-import 'models/user.dart';
+import 'package:ecolearning_app/data/models/category.dart';
+import 'package:ecolearning_app/data/models/coupon.dart';
+import 'package:ecolearning_app/data/models/course.dart';
+import 'package:ecolearning_app/data/models/lesson.dart';
+import 'package:ecolearning_app/data/models/user.dart';
 
 /// Toàn bộ dữ liệu giả lập (Mock Data) chuẩn hóa từ data.js
 /// Cung cấp dữ liệu tĩnh cho phân hệ Học viên (Learner)

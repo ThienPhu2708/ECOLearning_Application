@@ -3,11 +3,17 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_dimens.dart';
 import '../../../core/constants/app_typography.dart';
 import '../../../core/utils/formatters.dart';
-import '../../../data/mock_data.dart';
-import '../../../data/models/coupon.dart';
+import 'package:provider/provider.dart';
+import '../../providers/auth_provider.dart';
+import '../../providers/cart_provider.dart';
+import '../../widgets/sign_in_required.dart';
+import '../../widgets/state_views.dart';
+import '../../../core/utils/json_utils.dart';
+import '../../../data/repositories/order_repository.dart';
+import '../payment/payment_webview_screen.dart';
+import '../payment/payment_result_screen.dart';
 import '../../../data/models/course.dart';
 import '../../widgets/app_button.dart';
-import '../learning/learning_space_screen.dart';
 
 /// Màn hình Giỏ hàng & Thanh toán (UC4 & Section 4.5)
 class CartScreen extends StatefulWidget {
@@ -19,155 +25,95 @@ class CartScreen extends StatefulWidget {
 
 class _CartScreenState extends State<CartScreen> {
   final _couponController = TextEditingController();
-  Coupon? _appliedCoupon;
-  String? _couponError;
-  String _paymentMethod = 'momo'; // 'momo', 'vnpay', 'card'
+  String? get _couponCode =>
+      JsonUtils.asStringOrNull(JsonUtils.asMap(_quote?['coupon'])['code']);
+  String _paymentMethod = 'Napas'; // 'momo', 'vnpay', 'card'
   bool _isProcessing = false;
 
-  double get _subtotal => MockData.cartItems.fold(
-        0.0,
-        (sum, item) => sum + item.price,
-      );
-
-  double get _discountAmount {
-    if (_appliedCoupon == null) return 0.0;
-    return _subtotal * (_appliedCoupon!.discountPercent / 100.0);
+  Map<String, dynamic>? _quote;
+  final _repo = OrderRepository();
+  bool _quoting = true;
+  Object? _quoteError;
+  List<Course> get _cartCourses => context
+      .read<CartProvider>()
+      .items
+      .map((item) => Course.fromJson(item.toJson()))
+      .toList();
+  double get _subtotal => JsonUtils.asDouble(_quote?['subTotal']);
+  double get _discountAmount => JsonUtils.asDouble(_quote?['discount']);
+  double get _totalPayment => JsonUtils.asDouble(_quote?['total']);
+  @override
+  void initState() {
+    super.initState();
+    _refreshQuote();
   }
 
-  double get _totalPayment => (_subtotal - _discountAmount).clamp(0.0, double.infinity);
-
-  void _applyCoupon() {
-    final code = _couponController.text.trim().toUpperCase();
-    if (code.isEmpty) {
-      setState(() {
-        _couponError = 'Vui lòng nhập mã khuyến mãi';
-        _appliedCoupon = null;
-      });
+  Future<void> _refreshQuote() async {
+    if (context.read<AuthProvider?>()?.isLoggedIn != true) {
+      setState(() => _quoting = false);
       return;
     }
-
-    final match = MockData.availableCoupons.firstWhere(
-      (c) => c.code == code,
-      orElse: () => const Coupon(code: '', discountPercent: 0, description: '', isValid: false),
-    );
-
-    if (match.isValid) {
-      setState(() {
-        _appliedCoupon = match;
-        _couponError = null;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Áp dụng mã ${match.code} thành công: -${match.discountPercent.toInt()}%'),
-          backgroundColor: AppColors.success,
-        ),
+    setState(() {
+      _quoting = true;
+      _quoteError = null;
+    });
+    try {
+      final quote = await _repo.quote(
+        context.read<CartProvider>().ids,
+        couponCode: _couponController.text.trim().isEmpty
+            ? null
+            : _couponController.text.trim(),
       );
-    } else {
-      setState(() {
-        _appliedCoupon = null;
-        _couponError = 'Mã giảm giá không hợp lệ hoặc đã hết lượt dùng';
-      });
+      if (mounted) setState(() => _quote = quote);
+    } catch (e) {
+      if (mounted) setState(() => _quoteError = e);
+    } finally {
+      if (mounted) setState(() => _quoting = false);
     }
   }
 
-  void _removeItem(Course course) {
-    setState(() {
-      MockData.cartItems.removeWhere((c) => c.id == course.id);
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Đã xóa "${course.title}" khỏi giỏ hàng'),
-        action: SnackBarAction(
-          label: 'Hoàn tác',
-          onPressed: () {
-            setState(() {
-              MockData.cartItems.add(course);
-            });
-          },
-        ),
-      ),
-    );
+  Future<void> _applyCoupon() async {
+    await _refreshQuote();
   }
 
-  void _confirmCheckout() {
-    if (MockData.cartItems.isEmpty) return;
+  Future<void> _removeItem(Course course) async {
+    await context.read<CartProvider>().remove(course.id);
+    if (mounted) await _refreshQuote();
+  }
 
+  Future<void> _confirmCheckout() async {
+    if (_isProcessing || _quoting || _quoteError != null || _quote == null) {
+      return;
+    }
     setState(() => _isProcessing = true);
-
-    Future.delayed(const Duration(milliseconds: 1000), () {
+    try {
+      final result = await _repo.createOrder(
+        context.read<CartProvider>().ids,
+        couponCode: _couponController.text.trim().isEmpty
+            ? null
+            : _couponController.text.trim(),
+        paymentMethod: 'Napas',
+      );
       if (!mounted) return;
-      setState(() => _isProcessing = false);
-
-      // Chuyển các khóa học trong giỏ sang trạng thái đã đăng ký
-      final purchasedCourses = List<Course>.from(MockData.cartItems);
-      for (var c in purchasedCourses) {
-        c.isEnrolled = true;
-        if (c.progress == 0) {
-          c.progress = 5.0;
-        }
-        if (!MockData.allCourses.any((item) => item.id == c.id)) {
-          MockData.allCourses.add(c);
-        }
+      final id = JsonUtils.asString(result['orderId']);
+      final url = JsonUtils.asString(result['paymentUrl']);
+      if (id.isEmpty) {
+        throw StateError('Chưa nhận được mã đơn hàng từ máy chủ.');
       }
-      MockData.cartItems.clear();
-
-      // Hiện Modal chúc mừng
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: AppDimens.radiusCard),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 72,
-                height: 72,
-                decoration: const BoxDecoration(
-                  color: AppColors.successLight,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.check_circle_rounded,
-                  color: AppColors.success,
-                  size: 48,
-                ),
-              ),
-              const SizedBox(height: 16.0),
-              Text(
-                'Thanh toán thành công!',
-                style: AppTypography.titleMedium.copyWith(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 18.0,
-                ),
-              ),
-              const SizedBox(height: 8.0),
-              Text(
-                'Bạn đã sở hữu thành công ${purchasedCourses.length} khóa học. Bắt đầu lộ trình học ngay hôm nay!',
-                textAlign: TextAlign.center,
-                style: AppTypography.bodyMedium.copyWith(
-                  color: AppColors.textSecondary,
-                ),
-              ),
-              const SizedBox(height: 24.0),
-              AppButton(
-                text: 'Vào không gian học ngay',
-                onPressed: () {
-                  Navigator.of(context).pop(); // Đóng Dialog
-                  Navigator.of(context).pushReplacement(
-                    MaterialPageRoute(
-                      builder: (context) => LearningSpaceScreen(
-                        course: purchasedCourses.first,
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ],
-          ),
+      await Navigator.push(
+        context,
+        MaterialPageRoute<void>(
+          builder: (_) => JsonUtils.asBool(result['requiresPayment'])
+              ? PaymentWebViewScreen(orderId: id, paymentUrl: url)
+              : PaymentResultScreen(orderId: id),
         ),
       );
-    });
+      if (mounted) await _refreshQuote();
+    } catch (e) {
+      if (mounted) showErrorSnackBar(context, e);
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
+    }
   }
 
   @override
@@ -178,6 +124,21 @@ class _CartScreenState extends State<CartScreen> {
 
   @override
   Widget build(BuildContext context) {
+    context.watch<CartProvider>();
+    if (context.watch<AuthProvider?>()?.isLoggedIn != true) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Giỏ hàng')),
+        body: const SignInRequired(),
+      );
+    }
+    if (_quoting || _quoteError != null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Giỏ hàng')),
+        body: _quoting
+            ? const LoadingView()
+            : ErrorView(error: _quoteError, onRetry: _refreshQuote),
+      );
+    }
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -188,7 +149,7 @@ class _CartScreenState extends State<CartScreen> {
           ),
         ),
       ),
-      body: MockData.cartItems.isEmpty
+      body: _cartCourses.isEmpty
           ? _buildEmptyState()
           : SingleChildScrollView(
               physics: const BouncingScrollPhysics(),
@@ -198,7 +159,7 @@ class _CartScreenState extends State<CartScreen> {
                 children: [
                   // Tiêu đề số lượng
                   Text(
-                    'Khóa học đã chọn (${MockData.cartItems.length})',
+                    'Khóa học đã chọn (${_cartCourses.length})',
                     style: AppTypography.titleMedium.copyWith(
                       fontWeight: FontWeight.w800,
                     ),
@@ -206,7 +167,7 @@ class _CartScreenState extends State<CartScreen> {
                   const SizedBox(height: 12.0),
 
                   // Danh sách sản phẩm trong giỏ
-                  ...MockData.cartItems.map((course) => _buildCartItem(course)),
+                  ..._cartCourses.map((course) => _buildCartItem(course)),
                   const SizedBox(height: 20.0),
 
                   // Khung nhập mã giảm giá Coupon
@@ -223,10 +184,11 @@ class _CartScreenState extends State<CartScreen> {
 
                   // Nút xác nhận thanh toán
                   AppButton(
-                    text: 'Xác nhận thanh toán (${AppFormatters.formatCurrency(_totalPayment)})',
+                    text:
+                        'Xác nhận thanh toán (${AppFormatters.formatCurrency(_totalPayment)})',
                     isLoading: _isProcessing,
                     icon: const Icon(Icons.lock_outline_rounded, size: 20),
-                    onPressed: _confirmCheckout,
+                    onPressed: _quote == null ? null : _confirmCheckout,
                   ),
                   const SizedBox(height: 20.0),
                 ],
@@ -301,10 +263,7 @@ class _CartScreenState extends State<CartScreen> {
             child: SizedBox(
               width: 90,
               height: 65,
-              child: Image.network(
-                course.imageUrl,
-                fit: BoxFit.cover,
-              ),
+              child: Image.network(course.imageUrl, fit: BoxFit.cover),
             ),
           ),
           const SizedBox(width: AppDimens.p12),
@@ -403,23 +362,12 @@ class _CartScreenState extends State<CartScreen> {
               ),
             ],
           ),
-          if (_appliedCoupon != null) ...[
-            const SizedBox(height: 8.0),
+          if (_couponCode != null) ...[
+            const SizedBox(height: 8),
             Text(
-              '✓ Đã áp dụng: ${_appliedCoupon!.description} (-${_appliedCoupon!.discountPercent.toInt()}%)',
+              'Đã áp dụng: $_couponCode',
               style: AppTypography.labelSmall.copyWith(
                 color: AppColors.success,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-          if (_couponError != null) ...[
-            const SizedBox(height: 8.0),
-            Text(
-              '✕ $_couponError',
-              style: AppTypography.labelSmall.copyWith(
-                color: AppColors.error,
-                fontWeight: FontWeight.w600,
               ),
             ),
           ],
@@ -453,7 +401,9 @@ class _CartScreenState extends State<CartScreen> {
               Text('Tạm tính:', style: AppTypography.bodyMedium),
               Text(
                 AppFormatters.formatCurrency(_subtotal),
-                style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.w600),
+                style: AppTypography.bodyMedium.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ],
           ),
@@ -463,8 +413,10 @@ class _CartScreenState extends State<CartScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Khuyến mãi (${_appliedCoupon?.code}):',
-                  style: AppTypography.bodyMedium.copyWith(color: AppColors.success),
+                  'Khuyến mãi:',
+                  style: AppTypography.bodyMedium.copyWith(
+                    color: AppColors.success,
+                  ),
                 ),
                 Text(
                   '-${AppFormatters.formatCurrency(_discountAmount)}',
@@ -521,20 +473,8 @@ class _CartScreenState extends State<CartScreen> {
           ),
           const SizedBox(height: 12.0),
           _buildPaymentTile(
-            'momo',
-            'Ví Điện Tử MoMo (Khuyên dùng)',
-            Icons.account_balance_wallet_rounded,
-            Colors.pink,
-          ),
-          _buildPaymentTile(
-            'vnpay',
-            'Cổng VNPAY / Quét mã QR',
-            Icons.qr_code_2_rounded,
-            Colors.blue,
-          ),
-          _buildPaymentTile(
-            'card',
-            'Thẻ ATM Nội Địa / Visa / Mastercard',
+            'Napas',
+            'Thẻ ATM nội địa qua VNPay',
             Icons.credit_card_rounded,
             AppColors.primary,
           ),

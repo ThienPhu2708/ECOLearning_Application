@@ -1,9 +1,18 @@
 import 'package:flutter/material.dart';
+import 'course_preview_screen.dart';
+import '../../../core/utils/json_utils.dart';
+import '../../widgets/course_favorite_button.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_dimens.dart';
 import '../../../core/constants/app_typography.dart';
 import '../../../core/utils/formatters.dart';
-import '../../../data/mock_data.dart';
+import 'package:provider/provider.dart';
+import '../../providers/auth_provider.dart';
+import '../../providers/cart_provider.dart';
+import '../../../data/repositories/course_repository.dart';
+import '../../../data/repositories/order_repository.dart';
+import '../learning_support/learning_data_scope.dart';
+import '../../widgets/state_views.dart';
 import '../../../data/models/course.dart';
 import '../../widgets/app_button.dart';
 import '../../widgets/rating_stars.dart';
@@ -22,77 +31,105 @@ class CourseDetailScreen extends StatefulWidget {
 
 class _CourseDetailScreenState extends State<CourseDetailScreen> {
   late Course _course;
-  bool _isPlayingTrailer = false;
+  Future<Map<String, dynamic>>? _reviews;
+  bool _loading = true, _busy = false;
+  Object? _error;
 
   @override
   void initState() {
     super.initState();
     _course = widget.course;
+    _load();
   }
 
-  void _onAddToCart() {
-    if (!MockData.cartItems.any((c) => c.id == _course.id)) {
-      setState(() {
-        MockData.cartItems.add(_course);
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Đã thêm "${_course.title}" vào giỏ hàng!'),
-          backgroundColor: AppColors.success,
-          action: SnackBarAction(
-            label: 'Xem giỏ',
-            textColor: Colors.white,
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (context) => const CartScreen()),
-              );
-            },
-          ),
-        ),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Khóa học này đã có sẵn trong giỏ hàng.'),
-          backgroundColor: AppColors.primary,
-        ),
-      );
-    }
-  }
-
-  void _onBuyNow() {
-    if (!MockData.cartItems.any((c) => c.id == _course.id)) {
-      MockData.cartItems.add(_course);
-    }
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (context) => const CartScreen()),
-    );
-  }
-
-  void _onEnrollFree() {
+  Future<void> _load() async {
     setState(() {
-      _course.isEnrolled = true;
-      if (!MockData.allCourses.any((c) => c.id == _course.id && c.isEnrolled)) {
-        _course.progress = 5.0;
-      }
+      _loading = true;
+      _error = null;
     });
+    try {
+      final course =
+          await (LearningDataScope.read(context)?.courses ?? CourseRepository())
+              .detail(widget.course.id);
+      if (mounted) setState(() => _course = course);
+    } catch (e) {
+      if (mounted) setState(() => _error = e);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
 
+  bool _requireLogin() {
+    if (context.read<AuthProvider?>()?.isLoggedIn == true) return true;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Đăng ký khóa học thành công! Chuyển vào bài giảng...'),
-        backgroundColor: AppColors.success,
-      ),
+      const SnackBar(content: Text('Vui lòng đăng nhập để tiếp tục.')),
     );
+    return false;
+  }
 
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => LearningSpaceScreen(course: _course),
-      ),
-    );
+  Future<void> _onAddToCart() async {
+    if (!_requireLogin() || _busy) return;
+    _busy = true;
+    try {
+      final added = await context.read<CartProvider>().add(_course);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              added ? 'Đã thêm vào giỏ hàng.' : 'Khóa học đã có trong giỏ.',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) showErrorSnackBar(context, e);
+    } finally {
+      _busy = false;
+    }
+  }
+
+  Future<void> _onBuyNow() async {
+    if (!_requireLogin()) return;
+    await _onAddToCart();
+    if (mounted) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute<void>(builder: (_) => const CartScreen()),
+      );
+    }
+  }
+
+  Future<void> _onEnrollFree() async {
+    if (!_requireLogin() || _busy) return;
+    _busy = true;
+    try {
+      await OrderRepository().enrollFree(_course.id);
+      await _load();
+      if (mounted) {
+        await Navigator.push(
+          context,
+          MaterialPageRoute<void>(
+            builder: (_) => LearningSpaceScreen(course: _course),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) showErrorSnackBar(context, e);
+    } finally {
+      _busy = false;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_loading || _error != null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Chi tiết khóa học')),
+        body: _loading
+            ? const LoadingView()
+            : ErrorView(error: _error, onRetry: _load),
+      );
+    }
     return Scaffold(
       backgroundColor: AppColors.background,
       body: Stack(
@@ -102,9 +139,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
             physics: const BouncingScrollPhysics(),
             slivers: [
               // 1. Header Video Trailer / Ảnh bìa
-              SliverToBoxAdapter(
-                child: _buildMediaHeader(),
-              ),
+              SliverToBoxAdapter(child: _buildMediaHeader()),
 
               // 2. Nội dung chi tiết
               SliverToBoxAdapter(
@@ -175,8 +210,9 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
                         children: [
                           CircleAvatar(
                             radius: 20.0,
-                            backgroundImage:
-                                NetworkImage(_course.instructorAvatar),
+                            backgroundImage: NetworkImage(
+                              _course.instructorAvatar,
+                            ),
                           ),
                           const SizedBox(width: AppDimens.p12),
                           Column(
@@ -313,84 +349,39 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
       children: [
         AspectRatio(
           aspectRatio: 16 / 9,
-          child: _isPlayingTrailer
-              ? Container(
-                  color: Colors.black,
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Image.network(
-                        _course.imageUrl,
-                        fit: BoxFit.cover,
-                        width: double.infinity,
-                        height: double.infinity,
-                      ),
-                      Container(color: Colors.black.withValues(alpha: 0.5)),
-                      Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(
-                            Icons.play_circle_fill_rounded,
-                            size: 64,
-                            color: Colors.white,
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Đang phát Video Xem thử (Trailer)',
-                            style: AppTypography.bodyMedium.copyWith(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                      Positioned(
-                        top: 40,
-                        right: 16,
-                        child: IconButton(
-                          icon: const Icon(Icons.close_rounded, color: Colors.white),
-                          onPressed: () =>
-                              setState(() => _isPlayingTrailer = false),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Image.network(
+                _course.imageUrl,
+                width: double.infinity,
+                height: double.infinity,
+                fit: BoxFit.cover,
+                errorBuilder: (_, error, stack) =>
+                    const ColoredBox(color: AppColors.background),
+              ),
+              if (_course.chapters.any((c) => c.lessons.any((l) => l.isFree)))
+                FilledButton.icon(
+                  onPressed: () {
+                    final lesson = _course.chapters
+                        .expand((c) => c.lessons)
+                        .firstWhere((l) => l.isFree);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) => CoursePreviewScreen(
+                          courseId: _course.id,
+                          lessonId: lesson.id,
+                          title: lesson.title,
                         ),
                       ),
-                    ],
-                  ),
-                )
-              : Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Image.network(
-                      _course.imageUrl,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                    ),
-                    Container(
-                      color: Colors.black.withValues(alpha: 0.35),
-                    ),
-                    GestureDetector(
-                      onTap: () => setState(() => _isPlayingTrailer = true),
-                      child: Container(
-                        padding: const EdgeInsets.all(16.0),
-                        decoration: BoxDecoration(
-                          color: AppColors.primary.withValues(alpha: 0.9),
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.3),
-                              blurRadius: 20,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
-                        child: const Icon(
-                          Icons.play_arrow_rounded,
-                          color: Colors.white,
-                          size: 36.0,
-                        ),
-                      ),
-                    ),
-                  ],
+                    );
+                  },
+                  icon: const Icon(Icons.play_arrow_rounded),
+                  label: const Text('Xem thử bài học'),
                 ),
+            ],
+          ),
         ),
 
         // Nút Back & Share dạng tròn mờ
@@ -414,12 +405,20 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
               icon: const Icon(Icons.share_rounded, color: Colors.white),
               onPressed: () {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Đã sao chép liên kết khóa học!')),
+                  const SnackBar(
+                    content: Text('Đã sao chép liên kết khóa học!'),
+                  ),
                 );
               },
             ),
           ),
         ),
+        if (!_course.isEnrolled)
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 8,
+            right: 64,
+            child: CourseFavoriteButton(course: _course, size: 40),
+          ),
       ],
     );
   }
@@ -453,9 +452,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
 
   // Cây bài học Accordion (ExpansionTile)
   Widget _buildSyllabusAccordion() {
-    final chapters = _course.chapters.isNotEmpty
-        ? _course.chapters
-        : MockData.createFlutterChapters();
+    final chapters = _course.chapters;
 
     return Column(
       children: chapters.map((chapter) {
@@ -553,6 +550,9 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
 
   // Khối Đánh giá & Nhận xét
   Widget _buildReviewSection() {
+    _reviews ??=
+        (LearningDataScope.read(context)?.courses ?? CourseRepository())
+            .reviews(_course.id);
     return Container(
       padding: const EdgeInsets.all(AppDimens.p16),
       decoration: BoxDecoration(
@@ -580,18 +580,42 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
           ),
           const SizedBox(height: 16.0),
 
-          // Nhận xét mẫu 1
-          _buildReviewItem(
-            'Lê Hoàng Anh',
-            'Khóa học quá hay và thực chiến! Kiến thức logic rõ ràng, phần dự án giúp mình tự tin phỏng vấn.',
-            5.0,
-          ),
-          const Divider(color: AppColors.border, height: 24),
-          // Nhận xét mẫu 2
-          _buildReviewItem(
-            'Nguyễn Thị Mai',
-            'Giảng viên giải thích rất dễ hiểu, code theo mượt mà và hỗ trợ nhiệt tình.',
-            5.0,
+          FutureBuilder<Map<String, dynamic>>(
+            future: _reviews,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState != ConnectionState.done) {
+                return const LinearProgressIndicator();
+              }
+              if (snapshot.hasError) {
+                return Column(
+                  children: [
+                    const Text('Chưa tải được đánh giá.'),
+                    TextButton(
+                      onPressed: () => setState(() => _reviews = null),
+                      child: const Text('Thử lại'),
+                    ),
+                  ],
+                );
+              }
+              final items = JsonUtils.asMapList(snapshot.data?['items']);
+              if (items.isEmpty) return const Text('Chưa có đánh giá.');
+              return Column(
+                children: items
+                    .map(
+                      (item) => Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: _buildReviewItem(
+                          JsonUtils.asString(
+                            item['fullName'] ?? item['userName'],
+                          ),
+                          JsonUtils.asString(item['comment']),
+                          JsonUtils.asDouble(item['stars'] ?? item['rating']),
+                        ),
+                      ),
+                    )
+                    .toList(),
+              );
+            },
           ),
         ],
       ),

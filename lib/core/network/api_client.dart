@@ -16,26 +16,36 @@ import 'api_exception.dart';
 ///
 /// Màn hình không gọi trực tiếp lớp này, mà gọi qua các repository trong `lib/data/repositories`.
 class ApiClient {
-  ApiClient._() {
-    _dio = Dio(BaseOptions(
-      baseUrl: ApiConfig.baseUrl,
-      connectTimeout: ApiConfig.connectTimeout,
-      receiveTimeout: ApiConfig.receiveTimeout,
-      responseType: ResponseType.json,
-      headers: const {'Accept': 'application/json'},
-    ));
-    _dio.interceptors.add(InterceptorsWrapper(onRequest: (options, handler) {
-      final token = TokenStorage.instance.token;
-      if (token != null && token.isNotEmpty) {
-        options.headers['Authorization'] = 'Bearer $token';
-      }
-      handler.next(options);
-    }));
+  ApiClient({Dio? dio, String? Function()? tokenProvider}) {
+    _tokenProvider = tokenProvider ?? (() => TokenStorage.instance.token);
+    _dio =
+        dio ??
+        Dio(
+          BaseOptions(
+            baseUrl: ApiConfig.baseUrl,
+            connectTimeout: ApiConfig.connectTimeout,
+            receiveTimeout: ApiConfig.receiveTimeout,
+            responseType: ResponseType.json,
+            headers: const {'Accept': 'application/json'},
+          ),
+        );
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          final token = _tokenProvider();
+          if (token != null && token.isNotEmpty) {
+            options.headers['Authorization'] = 'Bearer $token';
+          }
+          handler.next(options);
+        },
+      ),
+    );
   }
 
-  static final ApiClient instance = ApiClient._();
+  static final ApiClient instance = ApiClient();
 
   late final Dio _dio;
+  late final String? Function() _tokenProvider;
 
   /// Gọi khi phiên đăng nhập hết hạn (401 trên request có token)
   void Function()? onUnauthorized;
@@ -43,16 +53,39 @@ class ApiClient {
   Future<dynamic> get(String path, {Map<String, dynamic>? query}) =>
       _send(() => _dio.get(path, queryParameters: _clean(query)));
 
-  Future<dynamic> post(String path, {Object? data, Map<String, dynamic>? query}) =>
+  Future<dynamic> post(
+    String path, {
+    Object? data,
+    Map<String, dynamic>? query,
+  }) =>
       _send(() => _dio.post(path, data: data, queryParameters: _clean(query)));
 
-  Future<dynamic> put(String path, {Object? data}) => _send(() => _dio.put(path, data: data));
+  Future<dynamic> put(String path, {Object? data}) =>
+      _send(() => _dio.put(path, data: data));
 
-  Future<dynamic> delete(String path, {Object? data}) => _send(() => _dio.delete(path, data: data));
+  Future<dynamic> delete(String path, {Object? data}) =>
+      _send(() => _dio.delete(path, data: data));
 
   /// Gửi file dạng multipart/form-data (vd: đổi ảnh đại diện A10)
-  Future<dynamic> upload(String path, {required String filePath, String field = 'file'}) async {
-    final form = FormData.fromMap({field: await MultipartFile.fromFile(filePath)});
+  Future<dynamic> upload(
+    String path, {
+    required String filePath,
+    String field = 'file',
+  }) async {
+    final extension = filePath.toLowerCase().split('.').last;
+    const imageTypes = {
+      'jpg': 'image/jpeg',
+      'jpeg': 'image/jpeg',
+      'png': 'image/png',
+      'webp': 'image/webp',
+    };
+    final type = imageTypes[extension];
+    final form = FormData.fromMap({
+      field: await MultipartFile.fromFile(
+        filePath,
+        contentType: type == null ? null : DioMediaType.parse(type),
+      ),
+    });
     return _send(() => _dio.post(path, data: form));
   }
 
@@ -81,7 +114,16 @@ class ApiClient {
       throw ApiException(
         statusCode: status,
         code: (body['code'] ?? 'UNKNOWN').toString(),
-        message: (body['message'] ?? ApiException.defaultMessage(status)).toString(),
+        message: (body['message'] ?? ApiException.defaultMessage(status))
+            .toString(),
+        errors: body['errors'] is Map
+            ? (body['errors'] as Map).map(
+                (key, value) => MapEntry(
+                  key.toString(),
+                  value is List ? value.join(' ') : value.toString(),
+                ),
+              )
+            : const {},
       );
     }
     return body;

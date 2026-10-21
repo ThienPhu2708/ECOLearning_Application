@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_dimens.dart';
 import '../../../core/constants/app_typography.dart';
+import '../../../core/network/api_exception.dart';
+import '../../../data/repositories/auth_repository.dart';
+import '../../../data/repositories/google_sign_in_service.dart';
+import '../../providers/auth_provider.dart';
 import '../../widgets/app_button.dart';
-import '../main_navigation.dart';
+import '../interests/interest_picker_screen.dart';
 import 'forgot_password_sheet.dart';
 import 'register_screen.dart';
 
@@ -16,49 +21,84 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _emailController =
-      TextEditingController(text: 'anh675262@gmail.com');
-  final _passwordController = TextEditingController(text: '12345678@Abc');
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
   bool _obscurePassword = true;
   bool _isLoading = false;
   String? _errorMessage;
+  String? _emailError;
+  String? _passwordError;
 
-  void _onLogin() {
+  Future<void> _onLogin() async {
+    if (_isLoading) return;
     final email = _emailController.text.trim();
-    final pass = _passwordController.text.trim();
+    final pass = _passwordController.text;
 
+    setState(() {
+      _emailError = email.isEmpty ? 'Vui lòng nhập email' : null;
+      _passwordError = pass.isEmpty ? 'Vui lòng nhập mật khẩu' : null;
+      _errorMessage = null;
+    });
     if (email.isEmpty || pass.isEmpty) {
-      setState(() {
-        _errorMessage = 'Vui lòng nhập đầy đủ Email và Mật khẩu!';
-      });
+      setState(() => _errorMessage = 'Vui lòng nhập đầy đủ Email và Mật khẩu!');
       return;
     }
 
+    setState(() => _isLoading = true);
+    try {
+      await context.read<AuthProvider>().login(email, pass);
+      if (!mounted) return;
+      await InterestGate.enter(context);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _errorMessage = e.message;
+        _emailError = e.fieldError('email');
+        _passwordError = e.fieldError('password');
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Chưa đăng nhập được. Vui lòng thử lại.';
+      });
+    }
+  }
+
+  /// Đăng nhập Google (A12): lấy ID token từ Google rồi gửi cho server
+  Future<void> _onGoogleLogin() async {
+    if (_isLoading) return;
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
-
-    // Giả lập xác thực người dùng
-    Future.delayed(const Duration(milliseconds: 600), () {
+    try {
+      final idToken = await GoogleSignInService.instance.signIn();
+      if (idToken == null) {
+        if (mounted) setState(() => _isLoading = false);
+        return; // người dùng tự hủy
+      }
       if (!mounted) return;
-      setState(() => _isLoading = false);
-
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const MainNavigationScreen()),
-      );
-    });
-  }
-
-  void _onGoogleLogin() {
-    setState(() => _isLoading = true);
-    Future.delayed(const Duration(milliseconds: 700), () {
+      final auth = context.read<AuthProvider>();
+      await auth.applySession(await AuthRepository().loginWithGoogle(idToken));
       if (!mounted) return;
-      setState(() => _isLoading = false);
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const MainNavigationScreen()),
-      );
-    });
+      await InterestGate.enter(context);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _errorMessage = e.statusCode == 404
+            ? 'Máy chủ chưa hỗ trợ đăng nhập Google.'
+            : e.message;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Chưa đăng nhập được. Vui lòng thử lại.';
+      });
+    }
   }
 
   @override
@@ -161,9 +201,10 @@ class _LoginScreenState extends State<LoginScreen> {
                 TextField(
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     hintText: 'Nhập email...',
-                    prefixIcon: Icon(
+                    errorText: _emailError,
+                    prefixIcon: const Icon(
                       Icons.mail_outline_rounded,
                       color: AppColors.textMuted,
                     ),
@@ -184,6 +225,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   obscureText: _obscurePassword,
                   decoration: InputDecoration(
                     hintText: 'Nhập mật khẩu...',
+                    errorText: _passwordError,
                     prefixIcon: const Icon(
                       Icons.lock_outline_rounded,
                       color: AppColors.textMuted,
@@ -238,7 +280,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     color: Colors.red,
                     size: 28,
                   ),
-                  onPressed: _onGoogleLogin,
+                  onPressed: _isLoading ? null : _onGoogleLogin,
                 ),
                 const SizedBox(height: 24.0),
 

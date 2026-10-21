@@ -5,6 +5,7 @@ import '../../core/constants/app_typography.dart';
 import '../../core/utils/formatters.dart';
 import '../../data/models/course.dart';
 import 'rating_stars.dart';
+import 'course_favorite_button.dart';
 
 enum CourseCardLayout { card, listHorizontal }
 
@@ -86,8 +87,8 @@ class CourseCard extends StatelessWidget {
                           color: course.tag.contains('TOP MATCH')
                               ? AppColors.primary
                               : (course.isFree
-                                  ? AppColors.success
-                                  : AppColors.warning),
+                                    ? AppColors.success
+                                    : AppColors.warning),
                           borderRadius: BorderRadius.circular(6.0),
                         ),
                         child: Text(
@@ -98,6 +99,12 @@ class CourseCard extends StatelessWidget {
                           ),
                         ),
                       ),
+                    ),
+                  if (!course.isEnrolled)
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: CourseFavoriteButton(course: course),
                     ),
                 ],
               ),
@@ -165,9 +172,9 @@ class CourseCard extends StatelessWidget {
                       ),
                     ] else ...[
                       // Giá bán kép (Ưu đãi & Gốc)
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.baseline,
-                        textBaseline: TextBaseline.alphabetic,
+                      Wrap(
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        runSpacing: 4,
                         children: [
                           Text(
                             AppFormatters.formatCurrency(course.price),
@@ -179,7 +186,9 @@ class CourseCard extends StatelessWidget {
                           if (course.originalPrice > course.price) ...[
                             const SizedBox(width: AppDimens.p8),
                             Text(
-                              AppFormatters.formatCurrency(course.originalPrice),
+                              AppFormatters.formatCurrency(
+                                course.originalPrice,
+                              ),
                               style: AppTypography.labelSmall.copyWith(
                                 color: AppColors.textMuted,
                                 decoration: TextDecoration.lineThrough,
@@ -221,23 +230,34 @@ class CourseCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // Ảnh bìa bên trái
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(10.0),
-                  child: SizedBox(
-                    width: 110,
-                    height: 80,
-                    child: Image.network(
-                      course.imageUrl,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => Container(
-                        color: AppColors.surfaceSubtle,
-                        child: const Icon(
-                          Icons.image_not_supported_rounded,
-                          color: AppColors.textMuted,
+                Stack(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(10.0),
+                      child: SizedBox(
+                        width: 110,
+                        height: 80,
+                        child: Image.network(
+                          course.imageUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) =>
+                              Container(
+                                color: AppColors.surfaceSubtle,
+                                child: const Icon(
+                                  Icons.image_not_supported_rounded,
+                                  color: AppColors.textMuted,
+                                ),
+                              ),
                         ),
                       ),
                     ),
-                  ),
+                    if (!course.isEnrolled)
+                      Positioned(
+                        top: 4,
+                        right: 4,
+                        child: CourseFavoriteButton(course: course, size: 32),
+                      ),
+                  ],
                 ),
                 const SizedBox(width: AppDimens.p12),
 
@@ -294,8 +314,11 @@ class CourseCard extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 6.0),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      Wrap(
+                        alignment: WrapAlignment.spaceBetween,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 8,
+                        runSpacing: 4,
                         children: [
                           RatingStars(rating: course.rating),
                           Text(

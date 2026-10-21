@@ -3,9 +3,14 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_dimens.dart';
 import '../../../core/constants/app_typography.dart';
 import '../../../core/utils/formatters.dart';
-import '../../../data/mock_data.dart';
+import '../../../data/models/category.dart';
+import '../../../data/repositories/course_repository.dart';
+import '../../../data/repositories/recommendation_repository.dart';
+import '../learning_support/learning_data_scope.dart';
+import '../../widgets/state_views.dart';
 import '../../../data/models/course.dart';
 import '../../widgets/course_card.dart';
+import '../../widgets/course_favorite_button.dart';
 import '../../widgets/rating_stars.dart';
 import '../course_detail/course_detail_screen.dart';
 
@@ -21,16 +26,66 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   String _selectedCategory = 'all';
-
-  List<Course> get _filteredCourses {
-    if (_selectedCategory == 'all') {
-      return MockData.allCourses;
-    }
-    final catObj = MockData.categories.firstWhere((c) => c.id == _selectedCategory);
-    return MockData.allCourses
-        .where((c) => c.category.toLowerCase().contains(catObj.name.toLowerCase()))
-        .toList();
+  List<Course> _apiCourses = [];
+  List<Category> _apiCategories = [];
+  Course? _topMatch;
+  bool _loading = true;
+  Object? _error;
+  int _request = 0;
+  @override
+  void initState() {
+    super.initState();
+    _load();
   }
+
+  Future<void> _load() async {
+    final request = ++_request;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final injected = LearningDataScope.read(context)?.courses;
+      final repo = injected ?? CourseRepository();
+      final categories = await repo.categories();
+      final page = await repo.courses(
+        categoryId: _selectedCategory == 'all' ? null : _selectedCategory,
+        pageSize: 50,
+        sort: 'popular',
+      );
+      Course? recommended = page.items.firstOrNull;
+      if (injected == null) {
+        try {
+          recommended = (await RecommendationRepository().recommendations(
+            limit: 1,
+          )).items.firstOrNull;
+        } catch (_) {
+          /* Catalog remains available if recommendations fail. */
+        }
+      }
+      if (mounted && request == _request) {
+        setState(() {
+          _apiCategories = [
+            const Category(
+              id: 'all',
+              name: 'Tất cả',
+              icon: Icons.apps_rounded,
+              emoji: '📚',
+            ),
+            ...categories.where((c) => c.id != 'all'),
+          ];
+          _apiCourses = page.items;
+          _topMatch = recommended;
+        });
+      }
+    } catch (e) {
+      if (mounted && request == _request) setState(() => _error = e);
+    } finally {
+      if (mounted && request == _request) setState(() => _loading = false);
+    }
+  }
+
+  List<Course> get _filteredCourses => _apiCourses;
 
   void _navigateToDetail(Course course) {
     Navigator.of(context).push(
@@ -44,40 +99,41 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: RefreshIndicator(
-        onRefresh: () async {
-          await Future.delayed(const Duration(milliseconds: 500));
-          setState(() {});
-        },
-        color: AppColors.primary,
-        child: SingleChildScrollView(
-          physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.only(bottom: AppDimens.p24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // 1. Khối Hero Banner
-              _buildHeroBanner(),
-              const SizedBox(height: 24.0),
+      body: _loading
+          ? const LoadingView()
+          : _error != null
+          ? ErrorView(error: _error, onRetry: _load)
+          : RefreshIndicator(
+              onRefresh: _load,
+              color: AppColors.primary,
+              child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.only(bottom: AppDimens.p24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // 1. Khối Hero Banner
+                    _buildHeroBanner(),
+                    const SizedBox(height: 24.0),
 
-              // 2. GỢI Ý RIÊNG CHO BẠN (COLLABORATIVE FILTERING: 98% FIT)
-              _buildTopMatchSection(),
-              const SizedBox(height: 24.0),
+                    // 2. GỢI Ý RIÊNG CHO BẠN (COLLABORATIVE FILTERING: 98% FIT)
+                    _buildTopMatchSection(),
+                    const SizedBox(height: 24.0),
 
-              // 3. DANH MỤC PHỔ BIẾN
-              _buildCategoriesSection(),
-              const SizedBox(height: 24.0),
+                    // 3. DANH MỤC PHỔ BIẾN
+                    _buildCategoriesSection(),
+                    const SizedBox(height: 24.0),
 
-              // 4. KHÓA HỌC BÁN CHẠY NHẤT 🔥 (Top Trending)
-              _buildTrendingSection(),
-              const SizedBox(height: 24.0),
+                    // 4. KHÓA HỌC BÁN CHẠY NHẤT 🔥 (Top Trending)
+                    _buildTrendingSection(),
+                    const SizedBox(height: 24.0),
 
-              // 5. KHÁM PHÁ THÊM KHÓA HỌC
-              _buildAllCoursesSection(),
-            ],
-          ),
-        ),
-      ),
+                    // 5. KHÁM PHÁ THÊM KHÓA HỌC
+                    _buildAllCoursesSection(),
+                  ],
+                ),
+              ),
+            ),
     );
   }
 
@@ -109,7 +165,10 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           // Tag viên thuốc nổi bật
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.0),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 10.0,
+              vertical: 4.0,
+            ),
             decoration: BoxDecoration(
               color: AppColors.primaryLight,
               borderRadius: BorderRadius.circular(999.0),
@@ -149,7 +208,10 @@ class _HomeScreenState extends State<HomeScreen> {
               backgroundColor: Colors.white,
               foregroundColor: AppColors.primary,
               elevation: 0,
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16.0,
+                vertical: 10.0,
+              ),
               minimumSize: Size.zero,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(10.0),
@@ -176,7 +238,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Khối đề xuất Collaborative Filtering (Top Match 98%)
   Widget _buildTopMatchSection() {
-    final course = MockData.topMatchCourse;
+    final course = _topMatch;
+    if (course == null) return const SizedBox.shrink();
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: AppDimens.p16),
@@ -185,10 +248,14 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           Row(
             children: [
-              const Icon(Icons.auto_awesome_rounded, color: AppColors.warning, size: 20),
+              const Icon(
+                Icons.auto_awesome_rounded,
+                color: AppColors.warning,
+                size: 20,
+              ),
               const SizedBox(width: AppDimens.p8),
               Text(
-                'GỢI Ý RIÊNG CHO BẠN',
+                'GỢI Ý KHÓA HỌC',
                 style: AppTypography.captionTiny.copyWith(
                   fontWeight: FontWeight.w800,
                   color: AppColors.textSecondary,
@@ -204,7 +271,10 @@ class _HomeScreenState extends State<HomeScreen> {
             decoration: BoxDecoration(
               color: AppColors.surface,
               borderRadius: AppDimens.radiusCard,
-              border: Border.all(color: AppColors.primary.withValues(alpha: 0.3), width: 1.5),
+              border: Border.all(
+                color: AppColors.primary.withValues(alpha: 0.3),
+                width: 1.5,
+              ),
               boxShadow: [
                 BoxShadow(
                   color: AppColors.primary.withValues(alpha: 0.08),
@@ -225,17 +295,26 @@ class _HomeScreenState extends State<HomeScreen> {
                     // Badge 98% Fit
                     Container(
                       width: double.infinity,
-                      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 8.0,
+                        horizontal: 16.0,
+                      ),
                       decoration: const BoxDecoration(
                         color: AppColors.primaryLight,
-                        borderRadius: BorderRadius.vertical(top: Radius.circular(14.0)),
+                        borderRadius: BorderRadius.vertical(
+                          top: Radius.circular(14.0),
+                        ),
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.stars_rounded, color: AppColors.primary, size: 18),
+                          const Icon(
+                            Icons.stars_rounded,
+                            color: AppColors.primary,
+                            size: 18,
+                          ),
                           const SizedBox(width: AppDimens.p8),
                           Text(
-                            '🌟 YOUR TOP MATCH: 98% FIT',
+                            'KHÓA HỌC ĐỀ XUẤT',
                             style: AppTypography.captionTiny.copyWith(
                               color: AppColors.primary,
                               fontWeight: FontWeight.w800,
@@ -252,15 +331,25 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(12.0),
-                            child: AspectRatio(
-                              aspectRatio: 16 / 9,
-                              child: Image.network(
-                                course.imageUrl,
-                                fit: BoxFit.cover,
+                          Stack(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(12.0),
+                                child: AspectRatio(
+                                  aspectRatio: 16 / 9,
+                                  child: Image.network(
+                                    course.imageUrl,
+                                    fit: BoxFit.cover,
+                                  ),
+                                ),
                               ),
-                            ),
+                              if (!course.isEnrolled)
+                                Positioned(
+                                  top: 8,
+                                  right: 8,
+                                  child: CourseFavoriteButton(course: course),
+                                ),
+                            ],
                           ),
                           const SizedBox(height: 12.0),
 
@@ -273,7 +362,9 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           const SizedBox(height: 6.0),
 
-                          Row(
+                          Wrap(
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            runSpacing: 4,
                             children: [
                               Text(
                                 '${course.instructor} • ',
@@ -289,8 +380,11 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           const SizedBox(height: 12.0),
 
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          Wrap(
+                            alignment: WrapAlignment.spaceBetween,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            spacing: 12,
+                            runSpacing: 8,
                             children: [
                               Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -304,7 +398,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                     ),
                                   ),
                                   Text(
-                                    AppFormatters.formatCurrency(course.originalPrice),
+                                    AppFormatters.formatCurrency(
+                                      course.originalPrice,
+                                    ),
                                     style: AppTypography.captionTiny.copyWith(
                                       color: AppColors.textMuted,
                                       decoration: TextDecoration.lineThrough,
@@ -358,10 +454,11 @@ class _HomeScreenState extends State<HomeScreen> {
           child: ListView.separated(
             padding: const EdgeInsets.symmetric(horizontal: AppDimens.p16),
             scrollDirection: Axis.horizontal,
-            itemCount: MockData.categories.length,
-            separatorBuilder: (context, index) => const SizedBox(width: AppDimens.p8),
+            itemCount: _apiCategories.length,
+            separatorBuilder: (context, index) =>
+                const SizedBox(width: AppDimens.p8),
             itemBuilder: (context, index) {
-              final cat = MockData.categories[index];
+              final cat = _apiCategories[index];
               final isSelected = cat.id == _selectedCategory;
 
               return FilterChip(
@@ -385,6 +482,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   setState(() {
                     _selectedCategory = cat.id;
                   });
+                  _load();
                 },
               );
             },
@@ -396,7 +494,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Khối Khóa học Bán chạy nhất 🔥
   Widget _buildTrendingSection() {
-    final trendingCourses = MockData.allCourses
+    final trendingCourses = _apiCourses
         .where((c) => c.tag.contains('BÁN CHẠY') || c.rating >= 4.85)
         .toList();
 
@@ -408,16 +506,15 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  Text(
-                    'Khóa học bán chạy nhất 🔥',
-                    style: AppTypography.titleMedium.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
+              Expanded(
+                child: Text(
+                  'Khóa học bán chạy nhất 🔥',
+                  style: AppTypography.titleMedium.copyWith(
+                    fontWeight: FontWeight.w800,
                   ),
-                ],
+                ),
               ),
+              const SizedBox(width: 8),
               GestureDetector(
                 onTap: () {
                   if (widget.onNavigateTab != null) {
@@ -437,12 +534,13 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         const SizedBox(height: 12.0),
         SizedBox(
-          height: 310,
+          height: 330,
           child: ListView.separated(
             padding: const EdgeInsets.symmetric(horizontal: AppDimens.p16),
             scrollDirection: Axis.horizontal,
             itemCount: trendingCourses.length,
-            separatorBuilder: (context, index) => const SizedBox(width: AppDimens.p12),
+            separatorBuilder: (context, index) =>
+                const SizedBox(width: AppDimens.p12),
             itemBuilder: (context, index) {
               final course = trendingCourses[index];
               return CourseCard(

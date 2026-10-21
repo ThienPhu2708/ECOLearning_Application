@@ -1,3 +1,4 @@
+import '../../core/config/api_config.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/json_utils.dart';
 import 'lesson.dart';
@@ -91,13 +92,17 @@ class Course {
       category: JsonUtils.asString(json['category']),
       categoryId: JsonUtils.asString(json['categoryId']),
       instructor: JsonUtils.asString(json['instructor']),
-      instructorRole: JsonUtils.asStringOrNull(instructorInfo['title']) ?? 'Chuyên gia giảng dạy',
-      instructorAvatar: JsonUtils.asStringOrNull(json['instructorAvatar']) ?? defaultInstructorAvatar,
+      instructorRole:
+          JsonUtils.asStringOrNull(instructorInfo['title']) ??
+          'Chuyên gia giảng dạy',
+      instructorAvatar:
+          JsonUtils.asStringOrNull(json['instructorAvatar']) ??
+          defaultInstructorAvatar,
       rating: JsonUtils.asDouble(json['rating']),
       reviewCount: JsonUtils.asInt(json['reviewCount']),
       price: price,
       originalPrice: JsonUtils.asDouble(json['originalPrice'], fallback: price),
-      imageUrl: JsonUtils.asString(json['imageUrl']),
+      imageUrl: ApiConfig.resolveMediaUrl(JsonUtils.asString(json['imageUrl'])),
       tag: JsonUtils.asString(json['tag']),
       level: JsonUtils.asString(json['level']),
       duration: AppFormatters.formatTotalDuration(seconds),
@@ -105,16 +110,25 @@ class Course {
       lessonsCount: JsonUtils.asInt(json['lessonsCount']),
       progress: progress,
       isEnrolled: JsonUtils.asBool(json['isEnrolled']),
-      isCompleted: JsonUtils.asBool(json['isCompleted'], fallback: progress >= 100),
+      isCompleted: JsonUtils.asBool(
+        json['isCompleted'],
+        fallback: progress >= 100,
+      ),
       isFavorite: JsonUtils.asBool(json['isFavorite']),
       canReview: JsonUtils.asBool(json['canReview']),
       description: JsonUtils.asString(json['description']),
       outcomes: JsonUtils.asStringList(json['outcomes']),
-      chapters: JsonUtils.asMapList(json['chapters']).map(Chapter.fromJson).toList(),
+      chapters: JsonUtils.asMapList(
+        json['chapters'],
+      ).map(Chapter.fromJson).toList(),
       lastLessonId: JsonUtils.asStringOrNull(json['lastLessonId']),
       hasCertificate: JsonUtils.asBool(json['hasCertificate']),
-      myReviewRating: myReview.isEmpty ? null : JsonUtils.asDouble(myReview['rating']),
-      myReviewComment: myReview.isEmpty ? null : JsonUtils.asStringOrNull(myReview['comment']),
+      myReviewRating: myReview.isEmpty
+          ? null
+          : JsonUtils.asDouble(myReview['rating']),
+      myReviewComment: myReview.isEmpty
+          ? null
+          : JsonUtils.asStringOrNull(myReview['comment']),
     );
   }
 
