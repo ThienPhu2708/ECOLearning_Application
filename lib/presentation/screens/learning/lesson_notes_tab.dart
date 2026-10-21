@@ -24,7 +24,7 @@ class LessonNotesTab extends StatefulWidget {
 class _LessonNotesTabState extends State<LessonNotesTab> {
   final _text = TextEditingController();
   List<Map<String, dynamic>> _notes = [];
-  bool _loading = true, _saving = false, _loadFailed = false;
+  bool _loading = true, _saving = false, _loadFailed = false, _seeking = false;
   String? _error;
   String get _key =>
       'lesson_notes_${jsonEncode([widget.userId, widget.courseId, widget.lessonId])}';
@@ -112,6 +112,27 @@ class _LessonNotesTabState extends State<LessonNotesTab> {
     ];
     next.sort((a, b) => (a['time'] as int).compareTo(b['time'] as int));
     _persist(next, clear: true);
+  }
+
+  Future<void> _openNote(int seconds) async {
+    final seek = widget.onSeek;
+    if (seek == null || _seeking) return;
+    setState(() {
+      _seeking = true;
+      _error = null;
+    });
+    try {
+      await seek(seconds);
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _error =
+              'Chưa quay lại được mốc ghi chú. Vui lòng thử lại khi video sẵn sàng.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _seeking = false);
+    }
   }
 
   String _time(int value) =>
@@ -212,9 +233,9 @@ class _LessonNotesTabState extends State<LessonNotesTab> {
                 Row(
                   children: [
                     TextButton.icon(
-                      onPressed: widget.onSeek == null
+                      onPressed: widget.onSeek == null || _seeking
                           ? null
-                          : () => widget.onSeek!(_notes[i]['time'] as int),
+                          : () => _openNote(_notes[i]['time'] as int),
                       icon: const Icon(Icons.access_time_rounded, size: 15),
                       label: Text(_time(_notes[i]['time'] as int)),
                     ),

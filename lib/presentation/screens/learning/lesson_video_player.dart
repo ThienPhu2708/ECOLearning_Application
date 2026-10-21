@@ -69,37 +69,47 @@ class _LessonVideoPlayerState extends State<LessonVideoPlayer> {
       backgroundColor: const Color(0xFF202126),
       showDragHandle: true,
       useSafeArea: true,
+      isScrollControlled: true,
+      constraints: BoxConstraints(
+        maxWidth: 420,
+        maxHeight: MediaQuery.sizeOf(context).height * .9,
+      ),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (context) => SafeArea(
         top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const ListTile(
-              leading: Icon(Icons.speed_rounded, color: Colors.white),
-              title: Text(
-                'Tốc độ phát',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-            for (final rate in [1.0, 1.5, 2.0])
-              ListTile(
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const ListTile(
+                leading: Icon(Icons.speed_rounded, color: Colors.white),
                 title: Text(
-                  rate == 1 ? 'Bình thường · 1x' : '${rate}x',
-                  style: const TextStyle(color: Colors.white),
+                  'Tốc độ phát',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-                trailing: rate == video.value.playbackSpeed
-                    ? const Icon(Icons.check_rounded, color: Color(0xFFA5B4FC))
-                    : null,
-                onTap: () => Navigator.pop(context, rate),
               ),
-            const SizedBox(height: 12),
-          ],
+              for (final rate in [1.0, 1.5, 2.0])
+                ListTile(
+                  title: Text(
+                    rate == 1 ? 'Bình thường · 1x' : '${rate}x',
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                  trailing: rate == video.value.playbackSpeed
+                      ? const Icon(
+                          Icons.check_rounded,
+                          color: Color(0xFFA5B4FC),
+                        )
+                      : null,
+                  onTap: () => Navigator.pop(context, rate),
+                ),
+              const SizedBox(height: 12),
+            ],
+          ),
         ),
       ),
     );

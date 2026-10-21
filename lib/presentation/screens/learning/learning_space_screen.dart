@@ -23,11 +23,13 @@ class LearningSpaceScreen extends StatefulWidget {
   final Course course;
   final LearningRepository? repository;
   final ReviewRepository? reviews;
+  final VideoPlayerController Function(Uri)? videoControllerFactory;
   const LearningSpaceScreen({
     super.key,
     required this.course,
     this.repository,
     this.reviews,
+    this.videoControllerFactory,
   });
   @override
   State<LearningSpaceScreen> createState() => _LearningSpaceScreenState();
@@ -102,7 +104,9 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
           !['http', 'https'].contains(url.scheme)) {
         throw StateError('Bài học chưa có đường dẫn video hợp lệ.');
       }
-      next = VideoPlayerController.networkUrl(url);
+      next =
+          widget.videoControllerFactory?.call(url) ??
+          VideoPlayerController.networkUrl(url);
       await next.initialize();
       if (!mounted || request != _videoRequest) {
         await next.dispose();
@@ -165,6 +169,22 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
       video.value.position.inSeconds,
       video.value.duration.inSeconds,
     );
+  }
+
+  Future<void> _seekToNote(int seconds) async {
+    final video = _video;
+    if (video == null ||
+        !video.value.isInitialized ||
+        _videoError != null ||
+        _switching ||
+        _videoLoading) {
+      throw StateError('Video chưa sẵn sàng.');
+    }
+    if (seconds < 0 || seconds > video.value.duration.inSeconds) {
+      throw StateError('Mốc ghi chú không nằm trong video này.');
+    }
+    // Only persisted note timestamps are clickable; the scrub bar stays read-only.
+    await video.seekTo(Duration(seconds: seconds));
   }
 
   Future<void> _selectLesson(Lesson lesson) async {
@@ -372,7 +392,10 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
                   position: () => _video?.value.isInitialized == true
                       ? _video!.value.position.inSeconds
                       : 0,
-                  onSeek: null,
+                  onSeek:
+                      _video?.value.isInitialized == true && _videoError == null
+                      ? _seekToNote
+                      : null,
                 ),
               ],
             ),

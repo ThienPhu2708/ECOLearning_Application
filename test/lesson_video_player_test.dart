@@ -24,6 +24,52 @@ class TestVideo extends VideoPlayerController {
 }
 
 void main() {
+  for (final size in [const Size(844, 390), const Size(720, 300)]) {
+    testWidgets(
+      'speed menu fits landscape $size and all choices remain reachable',
+      (tester) async {
+        tester.view.physicalSize = size;
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final video = TestVideo();
+        await tester.pumpWidget(
+          MaterialApp(
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: const TextScaler.linear(1.4)),
+              child: child!,
+            ),
+            home: Scaffold(
+              body: LessonVideoPlayer(
+                controller: video,
+                title: 'SELECT, WHERE và ORDER BY',
+                fullscreen: true,
+                loading: false,
+                error: null,
+                onBack: () {},
+                onRetry: () {},
+                onPlayPause: () async {},
+                onFullscreen: () {},
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('Tốc độ phát'));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        await tester.ensureVisible(find.text('2.0x'));
+        await tester.tap(find.text('2.0x'));
+        await tester.pumpAndSettle();
+        expect(video.value.playbackSpeed, 2);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+        await video.dispose();
+      },
+    );
+  }
+
   testWidgets(
     'video controls expose only permitted speeds and never allow scrubbing',
     (tester) async {
