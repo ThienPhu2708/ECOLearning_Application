@@ -24,7 +24,7 @@ class ApiConfig {
   static const Duration receiveTimeout = Duration(seconds: 30);
 
   /// Số khóa học mỗi trang khi phân trang (server tối đa 50)
-  static const int defaultPageSize = 12;
+  static const int defaultPageSize = 10;
 
   /// Thanh toán VNPay (mục 6.9): WebView gặp địa chỉ chứa chuỗi này thì đóng lại và gọi F4 lấy trạng thái đơn
   static const String paymentResultPath = '/Payment/Result';

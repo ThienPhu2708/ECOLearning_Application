@@ -1,119 +1,51 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_dimens.dart';
 import '../../../core/constants/app_typography.dart';
 import '../../../core/utils/formatters.dart';
-import 'package:provider/provider.dart';
-import '../../providers/auth_provider.dart';
-import '../../providers/cart_provider.dart';
-import '../../widgets/sign_in_required.dart';
-import '../../widgets/state_views.dart';
+import '../../../core/config/api_config.dart';
+import '../../../core/network/api_exception.dart';
 import '../../../core/utils/json_utils.dart';
+import '../../../data/models/cart_quote.dart';
+import '../../../data/repositories/course_repository.dart';
 import '../../../data/repositories/order_repository.dart';
-import '../payment/payment_webview_screen.dart';
-import '../payment/payment_result_screen.dart';
-import '../../../data/models/course.dart';
+import '../../navigation/app_navigator.dart';
+import '../../providers/cart_provider.dart';
 import '../../widgets/app_button.dart';
+import '../../widgets/state_views.dart';
+import '../course_detail/course_detail_screen.dart';
+import '../payment/payment_result_screen.dart';
+import '../payment/payment_webview_screen.dart';
 
 /// Màn hình Giỏ hàng & Thanh toán (UC4 & Section 4.5)
+/// Giỏ lưu trên máy (CartProvider) nhưng giá, mã giảm giá luôn lấy từ server (F1).
+/// Thanh toán: F3 tạo đơn → mở VNPay trong WebView → F4 xác minh (PaymentWebViewScreen, PaymentResultScreen).
 class CartScreen extends StatefulWidget {
-  const CartScreen({super.key});
+  /// Cho phép thay repository khi test
+  final OrderRepository? repository;
+
+  const CartScreen({super.key, this.repository});
 
   @override
   State<CartScreen> createState() => _CartScreenState();
 }
 
 class _CartScreenState extends State<CartScreen> {
+  late final OrderRepository _orderRepo = widget.repository ?? OrderRepository();
   final _couponController = TextEditingController();
-  String? get _couponCode =>
-      JsonUtils.asStringOrNull(JsonUtils.asMap(_quote?['coupon'])['code']);
-  String _paymentMethod = 'Napas'; // 'momo', 'vnpay', 'card'
+
+  CartQuote? _quote;
+  Object? _quoteError;
+  bool _quoting = false;
+  String? _appliedCode;
+  String? _couponError;
   bool _isProcessing = false;
 
-  Map<String, dynamic>? _quote;
-  final _repo = OrderRepository();
-  bool _quoting = true;
-  Object? _quoteError;
-  List<Course> get _cartCourses => context
-      .read<CartProvider>()
-      .items
-      .map((item) => Course.fromJson(item.toJson()))
-      .toList();
-  double get _subtotal => JsonUtils.asDouble(_quote?['subTotal']);
-  double get _discountAmount => JsonUtils.asDouble(_quote?['discount']);
-  double get _totalPayment => JsonUtils.asDouble(_quote?['total']);
   @override
   void initState() {
     super.initState();
     _refreshQuote();
-  }
-
-  Future<void> _refreshQuote() async {
-    if (context.read<AuthProvider?>()?.isLoggedIn != true) {
-      setState(() => _quoting = false);
-      return;
-    }
-    setState(() {
-      _quoting = true;
-      _quoteError = null;
-    });
-    try {
-      final quote = await _repo.quote(
-        context.read<CartProvider>().ids,
-        couponCode: _couponController.text.trim().isEmpty
-            ? null
-            : _couponController.text.trim(),
-      );
-      if (mounted) setState(() => _quote = quote);
-    } catch (e) {
-      if (mounted) setState(() => _quoteError = e);
-    } finally {
-      if (mounted) setState(() => _quoting = false);
-    }
-  }
-
-  Future<void> _applyCoupon() async {
-    await _refreshQuote();
-  }
-
-  Future<void> _removeItem(Course course) async {
-    await context.read<CartProvider>().remove(course.id);
-    if (mounted) await _refreshQuote();
-  }
-
-  Future<void> _confirmCheckout() async {
-    if (_isProcessing || _quoting || _quoteError != null || _quote == null) {
-      return;
-    }
-    setState(() => _isProcessing = true);
-    try {
-      final result = await _repo.createOrder(
-        context.read<CartProvider>().ids,
-        couponCode: _couponController.text.trim().isEmpty
-            ? null
-            : _couponController.text.trim(),
-        paymentMethod: 'Napas',
-      );
-      if (!mounted) return;
-      final id = JsonUtils.asString(result['orderId']);
-      final url = JsonUtils.asString(result['paymentUrl']);
-      if (id.isEmpty) {
-        throw StateError('Chưa nhận được mã đơn hàng từ máy chủ.');
-      }
-      await Navigator.push(
-        context,
-        MaterialPageRoute<void>(
-          builder: (_) => JsonUtils.asBool(result['requiresPayment'])
-              ? PaymentWebViewScreen(orderId: id, paymentUrl: url)
-              : PaymentResultScreen(orderId: id),
-        ),
-      );
-      if (mounted) await _refreshQuote();
-    } catch (e) {
-      if (mounted) showErrorSnackBar(context, e);
-    } finally {
-      if (mounted) setState(() => _isProcessing = false);
-    }
   }
 
   @override
@@ -122,23 +54,199 @@ class _CartScreenState extends State<CartScreen> {
     super.dispose();
   }
 
+  /// F1. Báo giá lại theo giỏ hiện tại. Trả false nếu lỗi (lỗi coupon được ghi vào [_couponError]).
+  Future<bool> _refreshQuote({String? coupon}) async {
+    final cart = context.read<CartProvider>();
+    if (cart.isEmpty) {
+      setState(() {
+        _quote = null;
+        _quoteError = null;
+        _appliedCode = null;
+      });
+      return true;
+    }
+
+    setState(() {
+      _quoting = true;
+      _quoteError = null;
+    });
+    final code = coupon ?? _appliedCode;
+    try {
+      final data = await _orderRepo.quote(cart.ids, couponCode: code);
+      if (!mounted) return false;
+      final quote = CartQuote.fromJson(data, requestedCoupon: code);
+      await cart.updatePrices(quote.prices, quote.originalPrices);
+      if (!mounted) return false;
+
+      String? couponError;
+      if (code != null && !quote.couponValid) {
+        couponError = quote.couponMessage ?? 'Mã giảm giá không hợp lệ hoặc đã hết lượt dùng';
+      }
+      setState(() {
+        _quote = quote;
+        _appliedCode = quote.couponValid ? quote.couponCode : null;
+        _couponError = couponError;
+        _quoting = false;
+      });
+
+      // Khóa đã sở hữu / ngừng bán: bỏ khỏi giỏ và báo cho người dùng
+      if (quote.invalidItems.isNotEmpty) {
+        await _dropInvalidItems(quote);
+      }
+      return couponError == null;
+    } on ApiException catch (e) {
+      if (!mounted) return false;
+      setState(() {
+        _quoting = false;
+        if (code != null && e.code.toUpperCase().contains('COUPON')) {
+          // Mã sai: giữ báo giá không mã
+          _couponError = e.message;
+          _appliedCode = null;
+        } else if (code != null && _quote != null && coupon != null) {
+          _couponError = e.message;
+        } else {
+          _quoteError = e;
+        }
+      });
+      if (code != null && coupon != null && _couponError != null) {
+        // Báo giá lại không kèm mã để số tiền hiển thị đúng
+        _appliedCode = null;
+        return _refreshQuote().then((_) => false);
+      }
+      return false;
+    }
+  }
+
+  Future<void> _dropInvalidItems(CartQuote quote) async {
+    final cart = context.read<CartProvider>();
+    final titles = <String>[];
+    for (final issue in quote.invalidItems) {
+      final item = cart.items.where((e) => e.id == issue.courseId).toList();
+      titles.add(item.isEmpty ? issue.reason : '${item.first.title}: ${issue.reason}');
+    }
+    await cart.removeAll(quote.invalidItems.map((e) => e.courseId));
+    if (!mounted) return;
+    AppNavigator.showMessage('Đã bỏ khỏi giỏ: ${titles.join('; ')}');
+    await _refreshQuote();
+  }
+
+  Future<void> _applyCoupon() async {
+    final code = _couponController.text.trim().toUpperCase();
+    if (code.isEmpty) {
+      setState(() => _couponError = 'Vui lòng nhập mã khuyến mãi');
+      return;
+    }
+    setState(() => _couponError = null);
+    final ok = await _refreshQuote(coupon: code);
+    if (!mounted || !ok) return;
+    final q = _quote;
+    if (q != null && q.couponValid) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Áp dụng mã ${q.couponCode} thành công'),
+          backgroundColor: AppColors.success,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  /// F2. Chọn mã từ ví: mã không dùng được cho giỏ hiện tại bị làm mờ kèm lý do
+  Future<void> _openCouponWallet() async {
+    final cart = context.read<CartProvider>();
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _CouponWalletSheet(courseIds: cart.ids, repo: _orderRepo),
+    );
+    if (picked == null || !mounted) return;
+    _couponController.text = picked;
+    _applyCoupon();
+  }
+
+  void _removeCoupon() {
+    _couponController.clear();
+    setState(() {
+      _appliedCode = null;
+      _couponError = null;
+    });
+    _refreshQuote();
+  }
+
+  Future<void> _removeItem(CartItem item) async {
+    final cart = context.read<CartProvider>();
+    await cart.remove(item.id);
+    if (!mounted) return;
+    _refreshQuote();
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text('Đã xóa "${item.title}" khỏi giỏ hàng'),
+          behavior: SnackBarBehavior.floating,
+          persist: false,
+          duration: const Duration(seconds: 3),
+          action: SnackBarAction(
+            label: 'Hoàn tác',
+            onPressed: () async {
+              await cart.restore(item);
+              if (mounted) _refreshQuote();
+            },
+          ),
+        ),
+      );
+  }
+
+  /// F3. Tạo đơn rồi mở VNPay (hoặc ghi danh ngay nếu tổng bằng 0)
+  Future<void> _confirmCheckout() async {
+    final cart = context.read<CartProvider>();
+    if (cart.isEmpty || _isProcessing) return;
+
+    setState(() => _isProcessing = true);
+    try {
+      // Luôn báo giá lại ngay trước khi thanh toán để chắc chắn giá và mã còn hiệu lực
+      final ok = await _refreshQuote();
+      if (!mounted) return;
+      if (!ok || cart.isEmpty) {
+        setState(() => _isProcessing = false);
+        return;
+      }
+
+      final courseIds = cart.ids;
+      final order = await _orderRepo.createOrder(courseIds, couponCode: _appliedCode);
+      if (!mounted) return;
+      final orderId = JsonUtils.asString(order['orderId']);
+      final requiresPayment = JsonUtils.asBool(order['requiresPayment'], fallback: true);
+      final paymentUrl = JsonUtils.asStringOrNull(order['paymentUrl']);
+      setState(() => _isProcessing = false);
+
+      final Widget next = (!requiresPayment || paymentUrl == null)
+          ? PaymentResultScreen(orderId: orderId, courseIds: courseIds)
+          : PaymentWebViewScreen(orderId: orderId, paymentUrl: paymentUrl, courseIds: courseIds);
+      await Navigator.of(context).push(MaterialPageRoute(builder: (_) => next));
+      if (mounted) _refreshQuote();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isProcessing = false;
+        if (e.code == 'COUPON_INVALID') {
+          // Mã hết hiệu lực lúc tạo đơn: bỏ mã và báo ngay dưới ô nhập mã
+          _couponError = e.message;
+          _appliedCode = null;
+        }
+      });
+      showErrorSnackBar(context, e);
+      // ALREADY_OWNED / COURSE_UNAVAILABLE / COUPON_INVALID: giỏ có thể đã đổi, báo giá lại để hiện đúng
+      _refreshQuote();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    context.watch<CartProvider>();
-    if (context.watch<AuthProvider?>()?.isLoggedIn != true) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Giỏ hàng')),
-        body: const SignInRequired(),
-      );
-    }
-    if (_quoting || _quoteError != null) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Giỏ hàng')),
-        body: _quoting
-            ? const LoadingView()
-            : ErrorView(error: _quoteError, onRetry: _refreshQuote),
-      );
-    }
+    final cart = context.watch<CartProvider>();
+    final items = cart.items;
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -149,51 +257,76 @@ class _CartScreenState extends State<CartScreen> {
           ),
         ),
       ),
-      body: _cartCourses.isEmpty
+      body: items.isEmpty
           ? _buildEmptyState()
-          : SingleChildScrollView(
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.all(AppDimens.p16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Tiêu đề số lượng
-                  Text(
-                    'Khóa học đã chọn (${_cartCourses.length})',
-                    style: AppTypography.titleMedium.copyWith(
-                      fontWeight: FontWeight.w800,
+          : RefreshIndicator(
+                      onRefresh: _refreshQuote,
+                      color: AppColors.primary,
+                      child: SingleChildScrollView(
+                        physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+                        padding: const EdgeInsets.all(AppDimens.p16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (_quoting) const LinearProgressIndicator(minHeight: 3, color: AppColors.primary),
+                            if (_quoteError != null) _buildQuoteErrorBanner(),
+                            Text(
+                              'Khóa học đã chọn (${items.length})',
+                              style: AppTypography.titleMedium.copyWith(
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 12.0),
+                            ...items.map(_buildCartItem),
+                            const SizedBox(height: 20.0),
+                            _buildCouponSection(),
+                            const SizedBox(height: 20.0),
+                            if (_quote != null) ...[
+                              _buildPriceSummary(),
+                              const SizedBox(height: 20.0),
+                            ],
+                            _buildPaymentMethods(),
+                            const SizedBox(height: 28.0),
+                            AppButton(
+                              text: _quote == null
+                                  ? 'Xác nhận thanh toán'
+                                  : (_quote!.total <= 0
+                                      ? 'Đăng ký học miễn phí'
+                                      : 'Xác nhận thanh toán (${AppFormatters.formatCurrency(_quote!.total)})'),
+                              isLoading: _isProcessing,
+                              icon: const Icon(Icons.lock_outline_rounded, size: 20),
+                              onPressed: (_quote == null || _quoting || _isProcessing) ? null : _confirmCheckout,
+                            ),
+                            const SizedBox(height: 20.0),
+                          ],
+                        ),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 12.0),
+    );
+  }
 
-                  // Danh sách sản phẩm trong giỏ
-                  ..._cartCourses.map((course) => _buildCartItem(course)),
-                  const SizedBox(height: 20.0),
-
-                  // Khung nhập mã giảm giá Coupon
-                  _buildCouponSection(),
-                  const SizedBox(height: 20.0),
-
-                  // Bảng tính tiền chi tiết
-                  _buildPriceSummary(),
-                  const SizedBox(height: 20.0),
-
-                  // Phương thức thanh toán
-                  _buildPaymentMethods(),
-                  const SizedBox(height: 28.0),
-
-                  // Nút xác nhận thanh toán
-                  AppButton(
-                    text:
-                        'Xác nhận thanh toán (${AppFormatters.formatCurrency(_totalPayment)})',
-                    isLoading: _isProcessing,
-                    icon: const Icon(Icons.lock_outline_rounded, size: 20),
-                    onPressed: _quote == null ? null : _confirmCheckout,
-                  ),
-                  const SizedBox(height: 20.0),
-                ],
-              ),
+  Widget _buildQuoteErrorBanner() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: AppDimens.p12),
+      padding: const EdgeInsets.all(AppDimens.p12),
+      decoration: BoxDecoration(
+        color: AppColors.errorLight,
+        borderRadius: AppDimens.radiusInput,
+        border: Border.all(color: AppColors.error),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.error_outline_rounded, color: AppColors.error, size: 20),
+          const SizedBox(width: AppDimens.p8),
+          Expanded(
+            child: Text(
+              'Không cập nhật được giá: ${errorMessage(_quoteError)}',
+              style: AppTypography.bodyMedium.copyWith(color: AppColors.error),
             ),
+          ),
+          TextButton(onPressed: _refreshQuote, child: const Text('Thử lại')),
+        ],
+      ),
     );
   }
 
@@ -246,16 +379,26 @@ class _CartScreenState extends State<CartScreen> {
   }
 
   // Từng thẻ khóa học trong giỏ
-  Widget _buildCartItem(Course course) {
+  Widget _buildCartItem(CartItem course) {
+    // Giá hiển thị là giá server báo ở lần báo giá gần nhất; chưa có thì dùng giá lưu trên máy
+    final price = _quote?.prices[course.id] ?? course.price;
+    final original = course.originalPrice;
     return Container(
       margin: const EdgeInsets.only(bottom: AppDimens.p12),
-      padding: const EdgeInsets.all(AppDimens.p12),
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: AppDimens.radiusCard,
         border: Border.all(color: AppColors.border),
       ),
-      child: Row(
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: AppDimens.radiusCard,
+        child: InkWell(
+          borderRadius: AppDimens.radiusCard,
+          onTap: () => CourseDetailScreen.open(context, course.toCourse(), ClickSource.home),
+          child: Padding(
+            padding: const EdgeInsets.all(AppDimens.p12),
+            child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           ClipRRect(
@@ -263,7 +406,14 @@ class _CartScreenState extends State<CartScreen> {
             child: SizedBox(
               width: 90,
               height: 65,
-              child: Image.network(course.imageUrl, fit: BoxFit.cover),
+              child: Image.network(
+                course.imageUrl,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  color: AppColors.surfaceSubtle,
+                  child: const Icon(Icons.image_not_supported_rounded, color: AppColors.textMuted),
+                ),
+              ),
             ),
           ),
           const SizedBox(width: AppDimens.p12),
@@ -287,12 +437,27 @@ class _CartScreenState extends State<CartScreen> {
                   ),
                 ),
                 const SizedBox(height: 6.0),
-                Text(
-                  AppFormatters.formatCurrency(course.price),
-                  style: AppTypography.bodyMedium.copyWith(
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.w800,
-                  ),
+                Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 8.0,
+                  children: [
+                    Text(
+                      AppFormatters.formatCurrency(price),
+                      style: AppTypography.bodyMedium.copyWith(
+                        color: AppColors.primary,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    if (original > price) ...[
+                      Text(
+                        AppFormatters.formatCurrency(original),
+                        style: AppTypography.captionTiny.copyWith(
+                          color: AppColors.textMuted,
+                          decoration: TextDecoration.lineThrough,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ],
             ),
@@ -307,6 +472,9 @@ class _CartScreenState extends State<CartScreen> {
             onPressed: () => _removeItem(course),
           ),
         ],
+      ),
+          ),
+        ),
       ),
     );
   }
@@ -337,7 +505,7 @@ class _CartScreenState extends State<CartScreen> {
                   controller: _couponController,
                   textCapitalization: TextCapitalization.characters,
                   decoration: const InputDecoration(
-                    hintText: 'VD: CHAOMUNG2026',
+                    hintText: 'Nhập mã giảm giá',
                     prefixIcon: Icon(Icons.confirmation_num_outlined, size: 20),
                     contentPadding: EdgeInsets.symmetric(
                       horizontal: 12.0,
@@ -352,22 +520,50 @@ class _CartScreenState extends State<CartScreen> {
                 child: ElevatedButton(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
+                    // Theme app đặt nút rộng vô hạn; trong một hàng ngang phải chặn lại, nếu không cả trang không dựng được
+                    minimumSize: const Size(96, 48),
                     shape: RoundedRectangleBorder(
                       borderRadius: AppDimens.radiusButton,
                     ),
                   ),
-                  onPressed: _applyCoupon,
+                  onPressed: _quoting ? null : _applyCoupon,
                   child: const Text('Áp dụng'),
                 ),
               ),
             ],
           ),
-          if (_couponCode != null) ...[
-            const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: _quoting ? null : _openCouponWallet,
+              icon: const Icon(Icons.local_activity_outlined, size: 18),
+              label: const Text('Chọn mã từ ví của tôi'),
+            ),
+          ),
+          if (_appliedCode != null) ...[
+            const SizedBox(height: 8.0),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '✓ Đã áp dụng mã $_appliedCode',
+                    style: AppTypography.labelSmall.copyWith(
+                      color: AppColors.success,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                TextButton(onPressed: _removeCoupon, child: const Text('Bỏ mã')),
+              ],
+            ),
+          ],
+          if (_couponError != null) ...[
+            const SizedBox(height: 8.0),
             Text(
-              'Đã áp dụng: $_couponCode',
+              '✕ $_couponError',
               style: AppTypography.labelSmall.copyWith(
-                color: AppColors.success,
+                color: AppColors.error,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ],
@@ -400,26 +596,22 @@ class _CartScreenState extends State<CartScreen> {
             children: [
               Text('Tạm tính:', style: AppTypography.bodyMedium),
               Text(
-                AppFormatters.formatCurrency(_subtotal),
-                style: AppTypography.bodyMedium.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
+                AppFormatters.formatCurrency(_quote?.subTotal ?? 0),
+                style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.w600),
               ),
             ],
           ),
-          if (_discountAmount > 0) ...[
+          if ((_quote?.discount ?? 0) > 0) ...[
             const SizedBox(height: 8.0),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Khuyến mãi:',
-                  style: AppTypography.bodyMedium.copyWith(
-                    color: AppColors.success,
-                  ),
+                  'Khuyến mãi (${_appliedCode ?? ''}):',
+                  style: AppTypography.bodyMedium.copyWith(color: AppColors.success),
                 ),
                 Text(
-                  '-${AppFormatters.formatCurrency(_discountAmount)}',
+                  '-${AppFormatters.formatCurrency(_quote?.discount ?? 0)}',
                   style: AppTypography.bodyMedium.copyWith(
                     color: AppColors.success,
                     fontWeight: FontWeight.w700,
@@ -430,20 +622,26 @@ class _CartScreenState extends State<CartScreen> {
           ],
           const Divider(color: AppColors.border, height: 24.0),
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'Tổng thanh toán:',
-                style: AppTypography.titleMedium.copyWith(
-                  fontWeight: FontWeight.w800,
+              Expanded(
+                child: Text(
+                  'Tổng thanh toán:',
+                  style: AppTypography.titleMedium.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ),
-              Text(
-                AppFormatters.formatCurrency(_totalPayment),
-                style: AppTypography.headlineMedium.copyWith(
-                  color: AppColors.primary,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 20.0,
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    AppFormatters.formatCurrency(_quote?.total ?? 0),
+                    style: AppTypography.headlineMedium.copyWith(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 20.0,
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -453,8 +651,25 @@ class _CartScreenState extends State<CartScreen> {
     );
   }
 
-  // Phương thức thanh toán
+  // Phương thức thanh toán lấy từ server (F1 paymentMethods). Chỉ Thẻ ATM nội địa (Napas) dùng được ở VNPay Sandbox.
   Widget _buildPaymentMethods() {
+    final fromServer = _quote?.paymentMethods ?? const <PaymentMethodOption>[];
+    final methods = fromServer.isNotEmpty
+        ? fromServer
+        : const [
+            PaymentMethodOption(id: ApiConfig.paymentMethodAtm, name: 'Thẻ ATM nội địa', enabled: true),
+            PaymentMethodOption(
+                id: 'Visa/Mastercard',
+                name: 'Thẻ quốc tế',
+                enabled: false,
+                reason: 'Chưa hỗ trợ ở môi trường thử nghiệm VNPay Sandbox'),
+            PaymentMethodOption(
+                id: 'MoMo/VNPay',
+                name: 'Ví điện tử / quét QR',
+                enabled: false,
+                reason: 'Chưa hỗ trợ ở môi trường thử nghiệm VNPay Sandbox'),
+          ];
+
     return Container(
       padding: const EdgeInsets.all(AppDimens.p16),
       decoration: BoxDecoration(
@@ -472,36 +687,39 @@ class _CartScreenState extends State<CartScreen> {
             ),
           ),
           const SizedBox(height: 12.0),
-          _buildPaymentTile(
-            'Napas',
-            'Thẻ ATM nội địa qua VNPay',
-            Icons.credit_card_rounded,
-            AppColors.primary,
-          ),
+          for (final m in methods)
+            _buildPaymentTile(
+              m.name,
+              m.enabled ? Icons.credit_card_rounded : Icons.credit_card_off_rounded,
+              m.enabled ? AppColors.primary : AppColors.textMuted,
+              selected: m.id == ApiConfig.paymentMethodAtm && m.enabled,
+              disabled: !m.enabled,
+              note: m.enabled ? 'Môi trường thử nghiệm (Sandbox), không trừ tiền thật' : m.reason,
+            ),
         ],
       ),
     );
   }
 
   Widget _buildPaymentTile(
-    String value,
     String title,
     IconData icon,
-    Color iconColor,
-  ) {
-    final isSelected = _paymentMethod == value;
-    return InkWell(
-      onTap: () => setState(() => _paymentMethod = value),
-      borderRadius: BorderRadius.circular(10.0),
+    Color iconColor, {
+    bool selected = false,
+    bool disabled = false,
+    String? note,
+  }) {
+    return Opacity(
+      opacity: disabled ? 0.55 : 1,
       child: Container(
         margin: const EdgeInsets.only(bottom: 8.0),
         padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 10.0),
         decoration: BoxDecoration(
-          color: isSelected ? AppColors.primaryLight : AppColors.surfaceSubtle,
+          color: selected ? AppColors.primaryLight : AppColors.surfaceSubtle,
           borderRadius: BorderRadius.circular(10.0),
           border: Border.all(
-            color: isSelected ? AppColors.primary : AppColors.border,
-            width: isSelected ? 1.5 : 1.0,
+            color: selected ? AppColors.primary : AppColors.border,
+            width: selected ? 1.5 : 1.0,
           ),
         ),
         child: Row(
@@ -509,21 +727,175 @@ class _CartScreenState extends State<CartScreen> {
             Icon(icon, color: iconColor, size: 24),
             const SizedBox(width: 12.0),
             Expanded(
-              child: Text(
-                title,
-                style: AppTypography.bodyMedium.copyWith(
-                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                  color: isSelected ? AppColors.primary : AppColors.textHeading,
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          title,
+                          style: AppTypography.bodyMedium.copyWith(
+                            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                            color: selected ? AppColors.primary : AppColors.textHeading,
+                          ),
+                        ),
+                      ),
+                      if (disabled) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppColors.warningLight,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text('Chưa hỗ trợ',
+                              style: AppTypography.captionTiny
+                                  .copyWith(color: AppColors.warning, fontWeight: FontWeight.w700)),
+                        ),
+                      ],
+                    ],
+                  ),
+                  if (note != null)
+                    Text(note, style: AppTypography.captionTiny.copyWith(color: AppColors.textSecondary)),
+                ],
               ),
             ),
             Icon(
-              isSelected
-                  ? Icons.radio_button_checked_rounded
-                  : Icons.radio_button_off_rounded,
-              color: isSelected ? AppColors.primary : AppColors.textMuted,
+              selected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
+              color: selected ? AppColors.primary : AppColors.textMuted,
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+
+/// Bottom sheet "Ví mã giảm giá" (F2 `GET /coupons/my?courseIds=...`).
+/// Tên trường đọc linh hoạt: code, title/description, isApplicable/usable, reason/message, expiresAt.
+class _CouponWalletSheet extends StatefulWidget {
+  final List<String> courseIds;
+  final OrderRepository repo;
+
+  const _CouponWalletSheet({required this.courseIds, required this.repo});
+
+  @override
+  State<_CouponWalletSheet> createState() => _CouponWalletSheetState();
+}
+
+class _CouponWalletSheetState extends State<_CouponWalletSheet> {
+  bool _loading = true;
+  Object? _error;
+  List<Map<String, dynamic>> _coupons = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final list = await widget.repo.myCoupons(widget.courseIds);
+      if (!mounted) return;
+      setState(() {
+        _coupons = list;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e;
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.7),
+      padding: const EdgeInsets.all(AppDimens.p24),
+      decoration: const BoxDecoration(color: AppColors.surface, borderRadius: AppDimens.radiusSheet),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Ví mã giảm giá',
+              style: AppTypography.titleMedium.copyWith(fontWeight: FontWeight.w800, fontSize: 18.0)),
+          const SizedBox(height: AppDimens.p12),
+          Flexible(
+            child: _loading
+                ? const Padding(padding: EdgeInsets.all(AppDimens.p24), child: LoadingView())
+                : _error != null
+                    ? ErrorView(error: _error, onRetry: _load)
+                    : _coupons.isEmpty
+                        ? const EmptyView(
+                            icon: Icons.local_activity_outlined,
+                            title: 'Ví chưa có mã giảm giá',
+                          )
+                        : ListView.separated(
+                            shrinkWrap: true,
+                            itemCount: _coupons.length,
+                            separatorBuilder: (_, _) => const SizedBox(height: AppDimens.p8),
+                            itemBuilder: (context, index) => _buildCoupon(_coupons[index]),
+                          ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCoupon(Map<String, dynamic> c) {
+    final code = JsonUtils.asString(c['code']);
+    final title = JsonUtils.asString(c['title'] ?? c['description'] ?? c['name']);
+    final usable = JsonUtils.asBool(c['isApplicable'] ?? c['usable'] ?? c['canUse'] ?? c['applicable'], fallback: true);
+    final discountText = JsonUtils.asString(c['discountText']);
+    final reason = JsonUtils.asString(c['reason'] ?? c['message']);
+    final expires = JsonUtils.asDate(c['expiresAt'] ?? c['endDate']);
+
+    return Opacity(
+      opacity: usable ? 1 : 0.5,
+      child: InkWell(
+        onTap: usable && code.isNotEmpty ? () => Navigator.of(context).pop(code) : null,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.all(AppDimens.p12),
+          decoration: BoxDecoration(
+            color: usable ? AppColors.primaryLight : AppColors.surfaceSubtle,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: usable ? AppColors.primary : AppColors.border),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.confirmation_num_outlined, color: AppColors.primary),
+              const SizedBox(width: AppDimens.p12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(code, style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.w800)),
+                    if (discountText.isNotEmpty)
+                      Text(discountText, style: AppTypography.captionTiny.copyWith(color: AppColors.primary, fontWeight: FontWeight.w700)),
+                    if (title.isNotEmpty)
+                      Text(title, style: AppTypography.captionTiny.copyWith(color: AppColors.textSecondary)),
+                    if (expires != null)
+                      Text('HSD: ${expires.day.toString().padLeft(2, '0')}/${expires.month.toString().padLeft(2, '0')}/${expires.year}',
+                          style: AppTypography.captionTiny.copyWith(color: AppColors.textMuted)),
+                    if (!usable && reason.isNotEmpty)
+                      Text(reason, style: AppTypography.captionTiny.copyWith(color: AppColors.error)),
+                  ],
+                ),
+              ),
+              if (usable) const Text('Dùng', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700)),
+            ],
+          ),
         ),
       ),
     );

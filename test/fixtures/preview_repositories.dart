@@ -5,6 +5,7 @@ import 'package:ecolearning_app/core/network/paged_result.dart';
 import 'package:ecolearning_app/data/models/course.dart';
 import 'package:ecolearning_app/data/models/category.dart';
 import 'mock_data.dart';
+import 'package:ecolearning_app/data/repositories/recommendation_repository.dart';
 import 'package:ecolearning_app/data/models/lesson.dart';
 import 'package:ecolearning_app/data/repositories/favorite_repository.dart';
 import 'package:ecolearning_app/data/repositories/learning_repository.dart';
@@ -536,6 +537,11 @@ class PreviewQuizRepository extends QuizRepository {
 }
 
 class PreviewCourseRepository extends CourseRepository {
+  @override
+  Future<({List<String> keywords, List<Course> courses})> suggest(
+    String q,
+  ) async => (keywords: <String>[], courses: <Course>[]);
+
   final PreviewLearningRepository learning;
   final PreviewQuizRepository quiz;
   PreviewCourseRepository(this.learning, this.quiz);
@@ -610,4 +616,10 @@ class PreviewReviewRepository extends ReviewRepository {
     course.myReviewComment = comment?.trim();
     return {'rating': rating, 'comment': comment?.trim()};
   }
+}
+
+class PreviewRecommendationRepository extends RecommendationRepository {
+  @override
+  Future<RecommendationResult> recommendations({int limit = 10}) async =>
+      RecommendationResult(type: 'popular', items: [MockData.topMatchCourse]);
 }

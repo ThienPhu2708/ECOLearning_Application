@@ -104,7 +104,8 @@ class MockData {
             isFree: false,
             isCurrent: true,
             lastPositionSeconds: 900,
-            videoSummary: 'Quy chuẩn bảng màu #434CE8 và font Plus Jakarta Sans.',
+            videoSummary:
+                'Quy chuẩn bảng màu #434CE8 và font Plus Jakarta Sans.',
           ),
           Lesson(
             id: 'les-1-3',

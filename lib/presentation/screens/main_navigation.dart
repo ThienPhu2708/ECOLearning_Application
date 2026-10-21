@@ -15,14 +15,19 @@ import 'orders/order_history_screen.dart';
 /// Shell điều hướng chính của phân hệ Học viên (Bottom Navigation Bar 4 Tabs)
 /// Bảo tồn trạng thái cuộn của từng trang bằng IndexedStack theo Mục 8
 class MainNavigationScreen extends StatefulWidget {
-  const MainNavigationScreen({super.key});
+  /// Tab mở đầu: 0 Trang chủ, 1 Khám phá, 2 Khóa học của tôi, 3 Hồ sơ
+  final int initialIndex;
+
+  const MainNavigationScreen({super.key, this.initialIndex = 0});
 
   @override
   State<MainNavigationScreen> createState() => _MainNavigationScreenState();
 }
 
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
-  int _currentIndex = 0;
+  late int _currentIndex = widget.initialIndex;
+
+  final _homeKey = GlobalKey<HomeScreenState>();
 
   @override
   void initState() {
@@ -52,6 +57,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     setState(() {
       _currentIndex = index;
     });
+    // Số liệu đổi theo việc mua / học nên tải lại khi mở tab
+    if (index == 0 && _currentIndex == 0) _homeKey.currentState?.reload();
+    if (index == 3) {
+      context.read<AuthProvider>().refreshUser().catchError((_) {});
+    }
   }
 
   @override
@@ -93,7 +103,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       body: IndexedStack(
         index: _currentIndex,
         children: [
-          HomeScreen(onNavigateTab: _onTabSelected),
+          HomeScreen(key: _homeKey, onNavigateTab: _onTabSelected),
           const ExploreScreen(),
           signedIn
               ? MyCoursesScreen(onNavigateTab: _onTabSelected)

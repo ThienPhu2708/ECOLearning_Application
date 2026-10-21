@@ -1,13 +1,16 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_dimens.dart';
 import '../../../core/constants/app_typography.dart';
+import '../../../data/models/category.dart';
+import '../../../data/models/course.dart';
 import '../../../data/repositories/course_repository.dart';
 import '../learning_support/learning_data_scope.dart';
-import '../../widgets/state_views.dart';
-import '../../../data/models/course.dart';
 import '../../widgets/course_card.dart';
+import '../../widgets/pagination_bar.dart';
+import '../../widgets/state_views.dart';
 import '../course_detail/course_detail_screen.dart';
 import 'filter_bottom_sheet.dart';
 
@@ -20,117 +23,157 @@ class ExploreScreen extends StatefulWidget {
 }
 
 class _ExploreScreenState extends State<ExploreScreen> {
+  CourseRepository get _repo =>
+      LearningDataScope.read(context)?.courses ?? CourseRepository();
   final TextEditingController _searchController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+  Timer? _debounce;
+
   String _searchQuery = '';
   FilterCriteria _filterCriteria = FilterCriteria();
 
-  List<Course> _apiCourses = [];
-  List<String> _keywords = [];
-  bool _loading = true, _loadingMore = false, _hasMore = false;
+  // Kết quả (B2) phân trang: cuộn gần cuối thì tải trang kế tiếp
+  final List<Course> _courses = [];
+  int _page = 1;
+  int _total = 0;
+  int _totalPages = 1;
+  bool _loading = true;
   Object? _error;
-  int _page = 1, _request = 0;
-  Timer? _debounce;
+  int _requestId =
+      0; // bỏ qua kết quả của lượt gọi cũ khi người dùng đổi từ khóa / bộ lọc
+
+  // Lĩnh vực (B1) để lọc nhanh; null là tất cả
+  List<Category> _categories = [];
+  String? _categoryId;
+
+  // Gợi ý từ khóa (B5): q rỗng thì là từ khóa thịnh hành
+  List<String> _keywords = [];
+
+  bool get _hasActiveFilter => _filterCriteria.hasFilter;
+
   @override
   void initState() {
     super.initState();
-    _searchController.addListener(_schedule);
-    _load();
+    _loadSuggestions('');
+    _loadCategories();
+    _search();
   }
 
-  void _schedule() {
-    setState(() => _searchQuery = _searchController.text.trim());
-    _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 350), () => _load());
-  }
-
-  Future<void> _load({bool more = false}) async {
-    if (more && (_loading || _loadingMore || !_hasMore)) return;
-    final request = more ? _request : ++_request;
-    final page = more ? _page + 1 : 1;
-    setState(() {
-      _error = null;
-      if (more) {
-        _loadingMore = true;
-      } else {
-        _loading = true;
-      }
-    });
+  Future<void> _loadCategories() async {
     try {
-      final repo =
-          LearningDataScope.read(context)?.courses ?? CourseRepository();
-      final result = await repo.courses(
-        q: _searchQuery,
-        page: page,
-        minRating: _filterCriteria.minRating > 0
-            ? _filterCriteria.minRating
-            : null,
-        level: _filterCriteria.level == 'Tất cả' ? null : _filterCriteria.level,
-        price: _filterCriteria.onlyFree ? 'free' : null,
-      );
-      if (!mounted || request != _request) return;
-      setState(() {
-        _apiCourses = more ? [..._apiCourses, ...result.items] : result.items;
-        _page = result.page;
-        _hasMore = result.hasMore;
-      });
-      if (_keywords.isEmpty) {
-        final categories = await repo.categories();
-        if (mounted && request == _request) {
-          setState(
-            () => _keywords = categories.map((c) => c.name).take(8).toList(),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted && request == _request) setState(() => _error = e);
-    } finally {
-      if (mounted && request == _request) {
-        setState(() {
-          _loading = false;
-          _loadingMore = false;
-        });
-      }
+      final list = await _repo.categories();
+      if (mounted) setState(() => _categories = list);
+    } catch (_) {
+      // Không có danh sách lĩnh vực thì chỉ mất hàng chip lọc nhanh
     }
   }
 
-  bool get _hasActiveFilter =>
-      _filterCriteria.minRating > 0 ||
-      _filterCriteria.level != 'Tất cả' ||
-      _filterCriteria.onlyFree;
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _scrollController.dispose();
+    _searchController.dispose();
+    super.dispose();
+  }
 
-  List<Course> get _filteredCourses => _apiCourses;
+  Future<void> _fetch(int page) async {
+    final f = _filterCriteria;
+    final result = await _repo.courses(
+      q: _searchQuery,
+      categoryId: _categoryId,
+      level: f.level == 'Tất cả' ? null : f.level,
+      price: f.onlyFree ? 'free' : null,
+      minRating: f.minRating > 0 ? f.minRating : null,
+      sort: f.sort,
+      page: page,
+    );
+    _courses
+      ..clear()
+      ..addAll(result.items);
+    _page = result.page;
+    _total = result.total;
+    _totalPages = result.totalPages < 1 ? 1 : result.totalPages;
+  }
+
+  /// Tìm lại từ trang 1 (đổi từ khóa, bộ lọc, sắp xếp, hoặc bấm "Thử lại")
+  Future<void> _search() => _goToPage(1);
+
+  /// Chuyển sang trang [page] (10 khóa mỗi trang) rồi cuộn lên đầu danh sách
+  Future<void> _goToPage(int page) async {
+    final id = ++_requestId;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      await _fetch(page);
+      if (!mounted || id != _requestId) return;
+      setState(() => _loading = false);
+      if (_scrollController.hasClients) _scrollController.jumpTo(0);
+    } catch (e) {
+      if (!mounted || id != _requestId) return;
+      setState(() {
+        _error = e;
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _loadSuggestions(String q) async {
+    try {
+      final result = await _repo.suggest(q);
+      if (!mounted || q != _searchQuery) return;
+      setState(() => _keywords = result.keywords);
+    } catch (_) {
+      // Gợi ý từ khóa chỉ là phụ trợ, lỗi thì giữ danh sách cũ
+    }
+  }
+
+  void _onQueryChanged(String value) {
+    setState(() => _searchQuery = value.trim());
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 400), () {
+      _loadSuggestions(_searchQuery);
+      _search();
+    });
+  }
+
+  void _resetAll() {
+    _debounce?.cancel();
+    _searchController.clear();
+    setState(() {
+      _searchQuery = '';
+      _categoryId = null;
+      _filterCriteria = FilterCriteria();
+    });
+    _loadSuggestions('');
+    _search();
+  }
 
   void _openFilter() {
     FilterBottomSheet.show(
       context,
       initialCriteria: _filterCriteria,
       onApply: (newCriteria) {
-        setState(() {
-          _filterCriteria = newCriteria;
-        });
-        _load();
+        setState(() => _filterCriteria = newCriteria);
+        _search();
       },
     );
   }
 
   void _applyKeyword(String keyword) {
+    _debounce?.cancel();
     setState(() {
       _searchController.text = keyword;
       _searchQuery = keyword;
     });
-  }
-
-  @override
-  void dispose() {
-    _debounce?.cancel();
-    _searchController.removeListener(_schedule);
-    _searchController.dispose();
-    super.dispose();
+    _loadSuggestions(keyword);
+    _search();
   }
 
   @override
   Widget build(BuildContext context) {
-    final courses = _filteredCourses;
+    final courses = _courses;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -146,6 +189,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                   Expanded(
                     child: TextField(
                       controller: _searchController,
+                      onChanged: _onQueryChanged,
                       decoration: InputDecoration(
                         hintText: 'Tìm khóa học, giảng viên, kỹ năng...',
                         prefixIcon: const Icon(Icons.search_rounded),
@@ -154,7 +198,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                                 icon: const Icon(Icons.clear_rounded, size: 20),
                                 onPressed: () {
                                   _searchController.clear();
-                                  setState(() => _searchQuery = '');
+                                  _onQueryChanged('');
                                 },
                               )
                             : null,
@@ -195,6 +239,46 @@ class _ExploreScreenState extends State<ExploreScreen> {
                 ],
               ),
             ),
+
+            // 2a. Lọc nhanh theo lĩnh vực
+            if (_categories.isNotEmpty)
+              SizedBox(
+                height: 40,
+                child: ListView.separated(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppDimens.p16,
+                  ),
+                  scrollDirection: Axis.horizontal,
+                  itemCount: _categories.length + 1,
+                  separatorBuilder: (context, index) =>
+                      const SizedBox(width: AppDimens.p8),
+                  itemBuilder: (context, index) {
+                    final id = index == 0 ? null : _categories[index - 1].id;
+                    final selected = _categoryId == id;
+                    return ChoiceChip(
+                      label: Text(
+                        index == 0 ? 'Tất cả' : _categories[index - 1].name,
+                      ),
+                      selected: selected,
+                      showCheckmark: false,
+                      selectedColor: AppColors.primary,
+                      backgroundColor: AppColors.surface,
+                      labelStyle: AppTypography.bodyMedium.copyWith(
+                        color: selected ? Colors.white : AppColors.textHeading,
+                        fontWeight: selected
+                            ? FontWeight.w700
+                            : FontWeight.w500,
+                        fontSize: 13.0,
+                      ),
+                      onSelected: (_) {
+                        setState(() => _categoryId = id);
+                        _search();
+                      },
+                    );
+                  },
+                ),
+              ),
+            const SizedBox(height: 8.0),
 
             // 2. Danh sách từ khóa xu hướng (Trending Tags)
             SizedBox(
@@ -250,22 +334,22 @@ class _ExploreScreenState extends State<ExploreScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    'Tìm thấy ${courses.length} khóa học phù hợp',
-                    style: AppTypography.labelSmall.copyWith(
-                      color: AppColors.textSecondary,
-                      fontWeight: FontWeight.w600,
+                  Expanded(
+                    child: Text(
+                      _loading
+                          ? 'Đang tìm kiếm...'
+                          : 'Tìm thấy $_total khóa học phù hợp (trang $_page/$_totalPages)',
+                      style: AppTypography.labelSmall.copyWith(
+                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
-                  if (_hasActiveFilter || _searchQuery.isNotEmpty)
+                  if (!_filterCriteria.isDefault ||
+                      _searchQuery.isNotEmpty ||
+                      _categoryId != null)
                     GestureDetector(
-                      onTap: () {
-                        _searchController.clear();
-                        setState(() {
-                          _searchQuery = '';
-                          _filterCriteria = FilterCriteria();
-                        });
-                      },
+                      onTap: _resetAll,
                       child: Text(
                         'Xóa bộ lọc',
                         style: AppTypography.captionTiny.copyWith(
@@ -284,40 +368,55 @@ class _ExploreScreenState extends State<ExploreScreen> {
               child: _loading
                   ? const LoadingView()
                   : _error != null
-                  ? ErrorView(error: _error, onRetry: _load)
+                  ? ErrorView(error: _error, onRetry: _search)
                   : courses.isEmpty
-                  ? _buildEmptyState()
-                  : ListView.builder(
-                      padding: const EdgeInsets.all(AppDimens.p16),
-                      physics: const BouncingScrollPhysics(),
-                      itemCount: courses.length + (_hasMore ? 1 : 0),
-                      itemBuilder: (context, index) {
-                        if (index == courses.length) {
-                          return TextButton(
-                            onPressed: _loadingMore
-                                ? null
-                                : () => _load(more: true),
-                            child: Text(
-                              _loadingMore ? 'Đang tải…' : 'Xem thêm',
+                  ? RefreshIndicator(
+                      onRefresh: _search,
+                      color: AppColors.primary,
+                      child: LayoutBuilder(
+                        builder: (context, constraints) =>
+                            SingleChildScrollView(
+                              physics: const AlwaysScrollableScrollPhysics(),
+                              child: SizedBox(
+                                height: constraints.maxHeight,
+                                child: _buildEmptyState(),
+                              ),
+                            ),
+                      ),
+                    )
+                  : RefreshIndicator(
+                      onRefresh: () => _goToPage(_page),
+                      color: AppColors.primary,
+                      child: ListView.builder(
+                        controller: _scrollController,
+                        padding: const EdgeInsets.all(AppDimens.p16),
+                        physics: const AlwaysScrollableScrollPhysics(
+                          parent: BouncingScrollPhysics(),
+                        ),
+                        itemCount: courses.length,
+                        itemBuilder: (context, index) {
+                          final course = courses[index];
+                          return CourseCard(
+                            course: course,
+                            layout: CourseCardLayout.listHorizontal,
+                            onTap: () => CourseDetailScreen.open(
+                              context,
+                              course,
+                              ClickSource.search,
                             ),
                           );
-                        }
-                        final course = courses[index];
-                        return CourseCard(
-                          course: course,
-                          layout: CourseCardLayout.listHorizontal,
-                          onTap: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (context) =>
-                                    CourseDetailScreen(course: course),
-                              ),
-                            );
-                          },
-                        );
-                      },
+                        },
+                      ),
                     ),
             ),
+
+            // 5. Thanh phân trang: ‹ 1 2 … N ›
+            if (!_loading && _error == null)
+              PaginationBar(
+                page: _page,
+                totalPages: _totalPages,
+                onPageChanged: _goToPage,
+              ),
           ],
         ),
       ),
@@ -368,13 +467,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                   borderRadius: BorderRadius.circular(10),
                 ),
               ),
-              onPressed: () {
-                _searchController.clear();
-                setState(() {
-                  _searchQuery = '';
-                  _filterCriteria = FilterCriteria();
-                });
-              },
+              onPressed: _resetAll,
               child: const Text('Đặt lại tìm kiếm & Bộ lọc'),
             ),
           ],

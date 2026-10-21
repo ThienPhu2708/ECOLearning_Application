@@ -6,13 +6,17 @@ import '../../widgets/app_button.dart';
 
 class FilterCriteria {
   double minRating; // 0.0, 3.0, 4.0, 4.5
-  String level;     // 'Tất cả', 'Cơ bản', 'Trung cấp', 'Chuyên sâu'
+  String level;     // 'Tất cả', 'Cơ bản', 'Trung cấp', 'Nâng cao'
   bool onlyFree;
+  String sort;      // popular, newest, rating, price_asc, price_desc (B2)
+
+  static const String defaultSort = 'popular';
 
   FilterCriteria({
     this.minRating = 0.0,
     this.level = 'Tất cả',
     this.onlyFree = false,
+    this.sort = defaultSort,
   });
 
   FilterCriteria clone() {
@@ -20,8 +24,13 @@ class FilterCriteria {
       minRating: minRating,
       level: level,
       onlyFree: onlyFree,
+      sort: sort,
     );
   }
+
+  /// Có lọc theo sao / trình độ / giá (sắp xếp không tính là lọc)
+  bool get hasFilter => minRating > 0 || level != 'Tất cả' || onlyFree;
+  bool get isDefault => !hasFilter && sort == defaultSort;
 }
 
 /// Modal Bottom Sheet Bộ lọc nâng cao theo QuyChuanThietKe_App.md Mục 4.3 & UC4
@@ -58,7 +67,14 @@ class FilterBottomSheet extends StatefulWidget {
 class _FilterBottomSheetState extends State<FilterBottomSheet> {
   late FilterCriteria _criteria;
 
-  final List<String> _levels = ['Tất cả', 'Cơ bản', 'Trung cấp', 'Chuyên sâu'];
+  final List<String> _levels = ['Tất cả', 'Cơ bản', 'Trung cấp', 'Nâng cao'];
+  final List<Map<String, String>> _sorts = [
+    {'label': 'Phổ biến', 'val': 'popular'},
+    {'label': 'Mới nhất', 'val': 'newest'},
+    {'label': 'Đánh giá cao', 'val': 'rating'},
+    {'label': 'Giá tăng dần', 'val': 'price_asc'},
+    {'label': 'Giá giảm dần', 'val': 'price_desc'},
+  ];
   final List<Map<String, dynamic>> _ratings = [
     {'label': 'Tất cả xếp hạng', 'val': 0.0},
     {'label': 'Từ 3.0★ trở lên', 'val': 3.0},
@@ -86,6 +102,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
         color: AppColors.surface,
         borderRadius: AppDimens.radiusSheet,
       ),
+      child: SingleChildScrollView(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -189,7 +206,38 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
           ),
           const SizedBox(height: 20.0),
 
-          // 3. Mức giá (Switch Miễn phí)
+          // 3. Sắp xếp (B2 sort)
+          Text(
+            'Sắp xếp theo',
+            style: AppTypography.bodyMedium.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 8.0),
+          Wrap(
+            spacing: 8.0,
+            runSpacing: 8.0,
+            children: _sorts.map((o) {
+              final isSelected = _criteria.sort == o['val'];
+              return ChoiceChip(
+                label: Text(o['label']!),
+                selected: isSelected,
+                selectedColor: AppColors.primary,
+                backgroundColor: AppColors.surfaceSubtle,
+                labelStyle: TextStyle(
+                  color: isSelected ? Colors.white : AppColors.textHeading,
+                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                  fontSize: 12.0,
+                ),
+                onSelected: (val) {
+                  setState(() => _criteria.sort = o['val']!);
+                },
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 20.0),
+
+          // 4. Mức giá (Switch Miễn phí)
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
             decoration: BoxDecoration(
@@ -226,6 +274,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
             },
           ),
         ],
+      ),
       ),
     );
   }

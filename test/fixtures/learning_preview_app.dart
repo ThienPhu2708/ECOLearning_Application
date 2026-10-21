@@ -37,6 +37,7 @@ class _LearningPreviewAppState extends State<LearningPreviewApp> {
           favorites: favorites,
           orders: orders,
           courses: courses,
+          recommendations: PreviewRecommendationRepository(),
           reviews: reviews,
           child: MaterialApp(
             title: 'ECOLearning',

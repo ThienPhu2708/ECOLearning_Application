@@ -1,4 +1,5 @@
 import 'package:flutter/widgets.dart';
+import '../../../data/repositories/recommendation_repository.dart';
 import '../../../data/repositories/learning_repository.dart';
 import '../../../data/repositories/quiz_repository.dart';
 import '../../../data/repositories/favorite_repository.dart';
@@ -13,6 +14,7 @@ class LearningDataScope extends InheritedWidget {
   final FavoriteRepository favorites;
   final OrderRepository orders;
   final CourseRepository? courses;
+  final RecommendationRepository? recommendations;
   final ReviewRepository? reviews;
   const LearningDataScope({
     super.key,
@@ -21,6 +23,7 @@ class LearningDataScope extends InheritedWidget {
     required this.favorites,
     required this.orders,
     this.courses,
+    this.recommendations,
     this.reviews,
     required super.child,
   });
@@ -33,5 +36,6 @@ class LearningDataScope extends InheritedWidget {
       favorites != oldWidget.favorites ||
       orders != oldWidget.orders ||
       courses != oldWidget.courses ||
+      recommendations != oldWidget.recommendations ||
       reviews != oldWidget.reviews;
 }
