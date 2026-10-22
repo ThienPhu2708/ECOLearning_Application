@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'core/notifications/study_reminder_service.dart';
 import 'package:provider/provider.dart';
 
 import 'core/network/api_client.dart';
@@ -17,15 +19,27 @@ Future<void> main() async {
   final auth = AuthProvider();
   final cart = CartProvider();
   await cart.load();
+  auth.onSessionCleared = cart.clear;
 
   // Token hết hạn / bị thu hồi (401): xóa phiên, về màn Đăng nhập
   ApiClient.instance.onUnauthorized = () async {
     if (auth.isLoggingOut) return;
     await auth.handleSessionExpired();
-    AppNavigator.toLogin(message: 'Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại.');
+    AppNavigator.toLogin(
+      message: 'Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại.',
+    );
   };
 
   runApp(EcoLearningApp(auth: auth, cart: cart));
+  unawaited(_restoreStudyReminder());
+}
+
+Future<void> _restoreStudyReminder() async {
+  try {
+    await StudyReminderService.instance.restore();
+  } catch (error) {
+    debugPrint('Study reminder restore failed: $error');
+  }
 }
 
 class EcoLearningApp extends StatelessWidget {

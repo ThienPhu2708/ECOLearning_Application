@@ -1,3 +1,4 @@
+import '../../core/config/api_config.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/json_utils.dart';
 
@@ -39,7 +40,9 @@ class Lesson {
       isFree: JsonUtils.asBool(json['isPreview']),
       lastPositionSeconds: JsonUtils.asInt(json['lastPositionSeconds']),
       videoSummary: JsonUtils.asStringOrNull(json['summary']),
-      videoUrl: JsonUtils.asStringOrNull(json['videoUrl']),
+      videoUrl: JsonUtils.asStringOrNull(json['videoUrl']) == null
+          ? null
+          : ApiConfig.resolveMediaUrl(JsonUtils.asString(json['videoUrl'])),
     );
   }
 
@@ -76,17 +79,15 @@ class Chapter {
   final String title;
   final List<Lesson> lessons;
 
-  Chapter({
-    required this.id,
-    required this.title,
-    required this.lessons,
-  });
+  Chapter({required this.id, required this.title, required this.lessons});
 
   factory Chapter.fromJson(Map<String, dynamic> json) {
     return Chapter(
       id: JsonUtils.asString(json['id']),
       title: JsonUtils.asString(json['title']),
-      lessons: JsonUtils.asMapList(json['lessons']).map(Lesson.fromJson).toList(),
+      lessons: JsonUtils.asMapList(
+        json['lessons'],
+      ).map(Lesson.fromJson).toList(),
     );
   }
 }

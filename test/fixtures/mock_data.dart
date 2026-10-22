@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'models/category.dart';
-import 'models/coupon.dart';
-import 'models/course.dart';
-import 'models/lesson.dart';
-import 'models/user.dart';
+import 'package:ecolearning_app/data/models/category.dart';
+import 'package:ecolearning_app/data/models/coupon.dart';
+import 'package:ecolearning_app/data/models/course.dart';
+import 'package:ecolearning_app/data/models/lesson.dart';
+import 'package:ecolearning_app/data/models/user.dart';
 
 /// Toàn bộ dữ liệu giả lập (Mock Data) chuẩn hóa từ data.js
 /// Cung cấp dữ liệu tĩnh cho phân hệ Học viên (Learner)
@@ -104,7 +104,8 @@ class MockData {
             isFree: false,
             isCurrent: true,
             lastPositionSeconds: 900,
-            videoSummary: 'Quy chuẩn bảng màu #434CE8 và font Plus Jakarta Sans.',
+            videoSummary:
+                'Quy chuẩn bảng màu #434CE8 và font Plus Jakarta Sans.',
           ),
           Lesson(
             id: 'les-1-3',

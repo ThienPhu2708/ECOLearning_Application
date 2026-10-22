@@ -1,10 +1,19 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import '../category/category_courses_screen.dart';
+import '../learning_support/learning_data_scope.dart';
+import '../../widgets/course_favorite_button.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_dimens.dart';
 import '../../../core/constants/app_typography.dart';
 import '../../../core/utils/formatters.dart';
-import '../../../data/mock_data.dart';
+import '../../../core/config/api_config.dart';
+import '../../../data/models/category.dart';
+import '../../../core/network/paged_result.dart';
 import '../../../data/models/course.dart';
+import '../../../data/repositories/course_repository.dart';
+import '../../../data/repositories/recommendation_repository.dart';
+import '../../widgets/state_views.dart';
 import '../../widgets/course_card.dart';
 import '../../widgets/rating_stars.dart';
 import '../course_detail/course_detail_screen.dart';
@@ -16,68 +25,177 @@ class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, this.onNavigateTab});
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  State<HomeScreen> createState() => HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
-  String _selectedCategory = 'all';
+class HomeScreenState extends State<HomeScreen> {
+  CourseRepository get _courseRepo =>
+      LearningDataScope.read(context)?.courses ?? CourseRepository();
+  RecommendationRepository get _recoRepo =>
+      LearningDataScope.read(context)?.recommendations ??
+      RecommendationRepository();
 
-  List<Course> get _filteredCourses {
-    if (_selectedCategory == 'all') {
-      return MockData.allCourses;
-    }
-    final catObj = MockData.categories.firstWhere((c) => c.id == _selectedCategory);
-    return MockData.allCourses
-        .where((c) => c.category.toLowerCase().contains(catObj.name.toLowerCase()))
-        .toList();
+  // Danh mục bấm ở "Danh mục phổ biến" mở màn riêng nên khối khám phá bên dưới luôn hiện tất cả
+  final String _selectedCategory = 'all';
+
+  bool _loading = true;
+  Object? _error;
+  List<Category> _categories = [];
+  RecommendationResult? _recommend;
+  List<Course> _popular = [];
+
+  // Khối "Khám phá khóa học" theo danh mục đang chọn (B2)
+  bool _loadingCourses = false;
+  Object? _coursesError;
+  List<Course> _courses = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
   }
 
-  void _navigateToDetail(Course course) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => CourseDetailScreen(course: course),
-      ),
-    );
+  /// Tải song song: danh mục (B1), gợi ý (C1), khóa học phổ biến (B2 sort=popular), danh sách khóa học (B2)
+  /// Làm mới dữ liệu. [silent] = true (kéo xuống để làm mới, quay lại từ màn khác) thì giữ nguyên
+  /// nội dung đang hiện, không thay bằng vòng tải toàn trang.
+  Future<void> reload() => _load(silent: true);
+
+  Future<void> _load({bool silent = false}) async {
+    if (!silent || _recommend == null) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
+    try {
+      final categories = _courseRepo.categories();
+      final recommend = _recoRepo.recommendations(limit: 10);
+      final popular = _courseRepo.courses(sort: 'popular', pageSize: 8);
+      final courses = _courseRepo.courses(
+        categoryId: _selectedCategory == 'all' ? null : _selectedCategory,
+        sort: 'newest',
+      );
+      final values = await Future.wait<Object>([
+        categories,
+        recommend,
+        popular,
+        courses,
+      ]);
+      final c = values[0] as List<Category>;
+      final r = values[1] as RecommendationResult;
+      final p = values[2] as PagedResult<Course>;
+      final l = values[3] as PagedResult<Course>;
+      if (!mounted) return;
+      setState(() {
+        _categories = c;
+        _recommend = r;
+        _popular = p.items;
+        _courses = l.items;
+        _loading = false;
+        _error = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      if (silent && _recommend != null) {
+        // Làm mới thất bại nhưng vẫn còn dữ liệu cũ: giữ lại và báo lỗi nhẹ
+        showErrorSnackBar(context, e);
+        return;
+      }
+      setState(() {
+        _error = e;
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _loadCourses() async {
+    setState(() {
+      _loadingCourses = true;
+      _coursesError = null;
+    });
+    try {
+      final page = await _courseRepo.courses(
+        categoryId: _selectedCategory == 'all' ? null : _selectedCategory,
+        sort: 'newest',
+      );
+      if (!mounted) return;
+      setState(() {
+        _courses = page.items;
+        _loadingCourses = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _coursesError = e;
+        _loadingCourses = false;
+      });
+    }
+  }
+
+  /// Khóa thuộc danh sách phổ biến (B2 sort=popular) thì hiện nhãn "Phổ biến" ở mọi mục của Trang chủ
+  bool _isPopular(Course c) => _popular.any((p) => p.id == c.id);
+
+  Future<void> _navigateToDetail(Course course, String source) async {
+    await CourseDetailScreen.open(context, course, source);
+    // Quay lại từ chi tiết: lượt xem / thả tim vừa rồi có thể làm đổi gợi ý
+    if (mounted) _load(silent: true);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: RefreshIndicator(
-        onRefresh: () async {
-          await Future.delayed(const Duration(milliseconds: 500));
-          setState(() {});
-        },
-        color: AppColors.primary,
-        child: SingleChildScrollView(
-          physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.only(bottom: AppDimens.p24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // 1. Khối Hero Banner
-              _buildHeroBanner(),
-              const SizedBox(height: 24.0),
+      body: _loading
+          ? const LoadingView()
+          : _error != null
+          ? ErrorView(error: _error, onRetry: _load)
+          : RefreshIndicator(
+              onRefresh: () => _load(silent: true),
+              color: AppColors.primary,
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(
+                  parent: BouncingScrollPhysics(),
+                ),
+                padding: const EdgeInsets.only(bottom: AppDimens.p24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // 1. Khối Hero Banner
+                    _buildHeroBanner(),
+                    const SizedBox(height: 24.0),
 
-              // 2. GỢI Ý RIÊNG CHO BẠN (COLLABORATIVE FILTERING: 98% FIT)
-              _buildTopMatchSection(),
-              const SizedBox(height: 24.0),
+                    // 2. GỢI Ý RIÊNG CHO BẠN (tiêu đề đổi theo type của C1)
+                    if (_recommend != null && _recommend!.items.isNotEmpty) ...[
+                      _buildTopMatchSection(),
+                      if (_recommend!.items.length > 1) ...[
+                        const SizedBox(height: 16.0),
+                        _buildRecommendedList(),
+                      ],
+                      const SizedBox(height: 24.0),
+                    ],
 
-              // 3. DANH MỤC PHỔ BIẾN
-              _buildCategoriesSection(),
-              const SizedBox(height: 24.0),
+                    // 3. DANH MỤC PHỔ BIẾN
+                    _buildCategoriesSection(),
+                    const SizedBox(height: 24.0),
 
-              // 4. KHÓA HỌC BÁN CHẠY NHẤT 🔥 (Top Trending)
-              _buildTrendingSection(),
-              const SizedBox(height: 24.0),
+                    // 4. KHÓA HỌC PHỔ BIẾN
+                    if (_popular.isNotEmpty) ...[
+                      _buildTrendingSection(),
+                      const SizedBox(height: 24.0),
+                    ],
 
-              // 5. KHÁM PHÁ THÊM KHÓA HỌC
-              _buildAllCoursesSection(),
-            ],
-          ),
-        ),
-      ),
+                    // 4b. KHÓA HỌC ĐANG GIẢM GIÁ
+                    if (_saleCourses.isNotEmpty) ...[
+                      _buildSaleSection(),
+                      const SizedBox(height: 24.0),
+                    ],
+
+                    // 5. KHÁM PHÁ THÊM KHÓA HỌC
+                    _buildAllCoursesSection(),
+                  ],
+                ),
+              ),
+            ),
     );
   }
 
@@ -109,7 +227,10 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           // Tag viên thuốc nổi bật
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.0),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 10.0,
+              vertical: 4.0,
+            ),
             decoration: BoxDecoration(
               color: AppColors.primaryLight,
               borderRadius: BorderRadius.circular(999.0),
@@ -149,7 +270,10 @@ class _HomeScreenState extends State<HomeScreen> {
               backgroundColor: Colors.white,
               foregroundColor: AppColors.primary,
               elevation: 0,
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16.0,
+                vertical: 10.0,
+              ),
               minimumSize: Size.zero,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(10.0),
@@ -176,7 +300,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Khối đề xuất Collaborative Filtering (Top Match 98%)
   Widget _buildTopMatchSection() {
-    final course = MockData.topMatchCourse;
+    final reco = _recommend!;
+    final course = reco.items.first;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: AppDimens.p16),
@@ -185,10 +310,14 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           Row(
             children: [
-              const Icon(Icons.auto_awesome_rounded, color: AppColors.warning, size: 20),
+              const Icon(
+                Icons.auto_awesome_rounded,
+                color: AppColors.warning,
+                size: 20,
+              ),
               const SizedBox(width: AppDimens.p8),
               Text(
-                'GỢI Ý RIÊNG CHO BẠN',
+                reco.title.toUpperCase(),
                 style: AppTypography.captionTiny.copyWith(
                   fontWeight: FontWeight.w800,
                   color: AppColors.textSecondary,
@@ -197,14 +326,25 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ],
           ),
+          const SizedBox(height: 6.0),
+          Text(
+            reco.subtitle,
+            style: AppTypography.captionTiny.copyWith(
+              color: AppColors.textSecondary,
+              height: 1.4,
+            ),
+          ),
           const SizedBox(height: 10.0),
 
-          // Card đặc biệt nổi bật 98%
+          // Card nổi bật khóa gợi ý đầu tiên
           Container(
             decoration: BoxDecoration(
               color: AppColors.surface,
               borderRadius: AppDimens.radiusCard,
-              border: Border.all(color: AppColors.primary.withValues(alpha: 0.3), width: 1.5),
+              border: Border.all(
+                color: AppColors.primary.withValues(alpha: 0.3),
+                width: 1.5,
+              ),
               boxShadow: [
                 BoxShadow(
                   color: AppColors.primary.withValues(alpha: 0.08),
@@ -217,7 +357,7 @@ class _HomeScreenState extends State<HomeScreen> {
               color: Colors.transparent,
               borderRadius: AppDimens.radiusCard,
               child: InkWell(
-                onTap: () => _navigateToDetail(course),
+                onTap: () => _navigateToDetail(course, ClickSource.recommend),
                 borderRadius: AppDimens.radiusCard,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -225,17 +365,26 @@ class _HomeScreenState extends State<HomeScreen> {
                     // Badge 98% Fit
                     Container(
                       width: double.infinity,
-                      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 8.0,
+                        horizontal: 16.0,
+                      ),
                       decoration: const BoxDecoration(
                         color: AppColors.primaryLight,
-                        borderRadius: BorderRadius.vertical(top: Radius.circular(14.0)),
+                        borderRadius: BorderRadius.vertical(
+                          top: Radius.circular(14.0),
+                        ),
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.stars_rounded, color: AppColors.primary, size: 18),
+                          const Icon(
+                            Icons.stars_rounded,
+                            color: AppColors.primary,
+                            size: 18,
+                          ),
                           const SizedBox(width: AppDimens.p8),
                           Text(
-                            '🌟 YOUR TOP MATCH: 98% FIT',
+                            reco.badge,
                             style: AppTypography.captionTiny.copyWith(
                               color: AppColors.primary,
                               fontWeight: FontWeight.w800,
@@ -252,15 +401,32 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(12.0),
-                            child: AspectRatio(
-                              aspectRatio: 16 / 9,
-                              child: Image.network(
-                                course.imageUrl,
-                                fit: BoxFit.cover,
+                          Stack(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(12.0),
+                                child: AspectRatio(
+                                  aspectRatio: 16 / 9,
+                                  child: CachedNetworkImage(
+                                    imageUrl: course.imageUrl,
+                                    fit: BoxFit.cover,
+                                    errorWidget: (_, _, _) => Container(
+                                      color: AppColors.surfaceSubtle,
+                                      child: const Icon(
+                                        Icons.image_outlined,
+                                        color: AppColors.textMuted,
+                                      ),
+                                    ),
+                                  ),
+                                ),
                               ),
-                            ),
+                              if (!course.isEnrolled)
+                                Positioned(
+                                  top: 8,
+                                  right: 8,
+                                  child: CourseFavoriteButton(course: course),
+                                ),
+                            ],
                           ),
                           const SizedBox(height: 12.0),
 
@@ -273,7 +439,9 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           const SizedBox(height: 6.0),
 
-                          Row(
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 6,
                             children: [
                               Text(
                                 '${course.instructor} • ',
@@ -289,8 +457,10 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           const SizedBox(height: 12.0),
 
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          Wrap(
+                            spacing: 16,
+                            runSpacing: 12,
+                            alignment: WrapAlignment.spaceBetween,
                             children: [
                               Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -304,7 +474,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                     ),
                                   ),
                                   Text(
-                                    AppFormatters.formatCurrency(course.originalPrice),
+                                    AppFormatters.formatCurrency(
+                                      course.originalPrice,
+                                    ),
                                     style: AppTypography.captionTiny.copyWith(
                                       color: AppColors.textMuted,
                                       decoration: TextDecoration.lineThrough,
@@ -320,7 +492,10 @@ class _HomeScreenState extends State<HomeScreen> {
                                     borderRadius: AppDimens.radiusButton,
                                   ),
                                 ),
-                                onPressed: () => _navigateToDetail(course),
+                                onPressed: () => _navigateToDetail(
+                                  course,
+                                  ClickSource.recommend,
+                                ),
                                 child: const Text('Xem chi tiết'),
                               ),
                             ],
@@ -335,6 +510,44 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  // Các khóa còn lại trong danh sách gợi ý (C1)
+  Widget _buildRecommendedList() {
+    final reco = _recommend!;
+    final items = reco.items.skip(1).toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: AppDimens.p16),
+          child: Text(
+            'Các khóa khác cùng gợi ý cho bạn',
+            style: AppTypography.bodyMedium.copyWith(
+              fontWeight: FontWeight.w700,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ),
+        const SizedBox(height: 12.0),
+        SizedBox(
+          height: 310,
+          child: ListView.separated(
+            padding: const EdgeInsets.symmetric(horizontal: AppDimens.p16),
+            scrollDirection: Axis.horizontal,
+            itemCount: items.length,
+            separatorBuilder: (context, index) =>
+                const SizedBox(width: AppDimens.p12),
+            itemBuilder: (context, index) => CourseCard(
+              course: items[index],
+              isPopular: _isPopular(items[index]),
+              onTap: () =>
+                  _navigateToDetail(items[index], ClickSource.recommend),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -358,33 +571,42 @@ class _HomeScreenState extends State<HomeScreen> {
           child: ListView.separated(
             padding: const EdgeInsets.symmetric(horizontal: AppDimens.p16),
             scrollDirection: Axis.horizontal,
-            itemCount: MockData.categories.length,
-            separatorBuilder: (context, index) => const SizedBox(width: AppDimens.p8),
+            itemCount: _categories.length + 1,
+            separatorBuilder: (context, index) =>
+                const SizedBox(width: AppDimens.p8),
             itemBuilder: (context, index) {
-              final cat = MockData.categories[index];
-              final isSelected = cat.id == _selectedCategory;
-
-              return FilterChip(
-                label: Text('${cat.emoji} ${cat.name}'),
-                selected: isSelected,
+              final cat = index == 0
+                  ? const Category(
+                      id: 'all',
+                      name: 'Tất cả',
+                      icon: Icons.apps_rounded,
+                      emoji: '✨',
+                    )
+                  : _categories[index - 1];
+              // Bấm một danh mục thì mở danh sách khóa học của danh mục đó (giống web);
+              // "Tất cả" chuyển sang tab Khám phá
+              return ActionChip(
+                label: Text(cat.name),
                 backgroundColor: AppColors.surface,
-                selectedColor: AppColors.primary,
-                checkmarkColor: Colors.white,
                 labelStyle: AppTypography.bodyMedium.copyWith(
-                  color: isSelected ? Colors.white : AppColors.textHeading,
-                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                  color: AppColors.textHeading,
+                  fontWeight: FontWeight.w500,
                   fontSize: 13.0,
                 ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(999.0),
-                  side: BorderSide(
-                    color: isSelected ? AppColors.primary : AppColors.border,
-                  ),
+                  side: const BorderSide(color: AppColors.border),
                 ),
-                onSelected: (val) {
-                  setState(() {
-                    _selectedCategory = cat.id;
-                  });
+                onPressed: () {
+                  if (index == 0) {
+                    widget.onNavigateTab?.call(1);
+                    return;
+                  }
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => CategoryCoursesScreen(category: cat),
+                    ),
+                  );
                 },
               );
             },
@@ -394,24 +616,70 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// Các khóa đang giảm giá gom từ những danh sách đã tải (gợi ý, phổ biến, mới nhất); API chưa có bộ lọc giảm giá
+  List<Course> get _saleCourses {
+    final seen = <String>{};
+    final all = [...?_recommend?.items, ..._popular, ..._courses];
+    return all
+        .where(
+          (c) => SaleBadge.isOnSale(c.price, c.originalPrice) && seen.add(c.id),
+        )
+        .take(10)
+        .toList();
+  }
+
+  Widget _buildSaleSection() {
+    final items = _saleCourses;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: AppDimens.p16),
+          child: Text(
+            'Đang giảm giá 🏷️',
+            style: AppTypography.titleMedium.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+        const SizedBox(height: 12.0),
+        SizedBox(
+          height: 310,
+          child: ListView.separated(
+            padding: const EdgeInsets.symmetric(horizontal: AppDimens.p16),
+            scrollDirection: Axis.horizontal,
+            itemCount: items.length,
+            separatorBuilder: (context, index) =>
+                const SizedBox(width: AppDimens.p12),
+            itemBuilder: (context, index) => CourseCard(
+              course: items[index],
+              isPopular: _isPopular(items[index]),
+              onTap: () => _navigateToDetail(items[index], ClickSource.home),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   // Khối Khóa học Bán chạy nhất 🔥
   Widget _buildTrendingSection() {
-    final trendingCourses = MockData.allCourses
-        .where((c) => c.tag.contains('BÁN CHẠY') || c.rating >= 4.85)
-        .toList();
+    final trendingCourses = _popular;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: AppDimens.p16),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          child: Wrap(
+            spacing: 12,
+            runSpacing: 6,
+            alignment: WrapAlignment.spaceBetween,
             children: [
               Row(
                 children: [
                   Text(
-                    'Khóa học bán chạy nhất 🔥',
+                    'Khóa học phổ biến 🔥',
                     style: AppTypography.titleMedium.copyWith(
                       fontWeight: FontWeight.w800,
                     ),
@@ -442,12 +710,14 @@ class _HomeScreenState extends State<HomeScreen> {
             padding: const EdgeInsets.symmetric(horizontal: AppDimens.p16),
             scrollDirection: Axis.horizontal,
             itemCount: trendingCourses.length,
-            separatorBuilder: (context, index) => const SizedBox(width: AppDimens.p12),
+            separatorBuilder: (context, index) =>
+                const SizedBox(width: AppDimens.p12),
             itemBuilder: (context, index) {
               final course = trendingCourses[index];
               return CourseCard(
                 course: course,
-                onTap: () => _navigateToDetail(course),
+                isPopular: _isPopular(course),
+                onTap: () => _navigateToDetail(course, ClickSource.home),
               );
             },
           ),
@@ -458,7 +728,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Khối tất cả khóa học theo danh mục đang chọn
   Widget _buildAllCoursesSection() {
-    final courses = _filteredCourses;
+    final courses = _courses;
+    final source = _selectedCategory == 'all'
+        ? ClickSource.home
+        : ClickSource.category;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: AppDimens.p16),
@@ -466,19 +739,43 @@ class _HomeScreenState extends State<HomeScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Khám phá khóa học (${courses.length})',
+            'Khám phá khóa học',
             style: AppTypography.titleMedium.copyWith(
               fontWeight: FontWeight.w800,
             ),
           ),
           const SizedBox(height: 12.0),
-          ...courses.map(
-            (c) => CourseCard(
-              course: c,
-              layout: CourseCardLayout.listHorizontal,
-              onTap: () => _navigateToDetail(c),
+          if (_loadingCourses)
+            const Padding(
+              padding: EdgeInsets.all(AppDimens.p24),
+              child: LoadingView(),
+            )
+          else if (_coursesError != null)
+            ErrorView(error: _coursesError, onRetry: _loadCourses)
+          else if (courses.isEmpty)
+            const EmptyView(
+              icon: Icons.school_outlined,
+              title: 'Chưa có khóa học',
+              message: 'Danh mục này chưa có khóa học nào đang mở bán.',
+            )
+          else
+            ...courses.map(
+              (c) => CourseCard(
+                course: c,
+                isPopular: _isPopular(c),
+                layout: CourseCardLayout.listHorizontal,
+                onTap: () => _navigateToDetail(c, source),
+              ),
             ),
-          ),
+          if (!_loadingCourses &&
+              _coursesError == null &&
+              courses.length >= ApiConfig.defaultPageSize)
+            Center(
+              child: TextButton(
+                onPressed: () => widget.onNavigateTab?.call(1),
+                child: const Text('Xem thêm khóa học trong Khám phá'),
+              ),
+            ),
         ],
       ),
     );

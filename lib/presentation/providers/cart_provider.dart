@@ -33,6 +33,23 @@ class CartItem {
         originalPrice: c.originalPrice,
       );
 
+  /// Course tối thiểu để mở màn chi tiết từ giỏ (màn chi tiết tải lại đầy đủ bằng B3)
+  Course toCourse() => Course(
+        id: id,
+        title: title,
+        category: '',
+        instructor: instructor,
+        rating: 0,
+        reviewCount: 0,
+        price: price,
+        originalPrice: originalPrice,
+        imageUrl: imageUrl,
+        tag: '',
+        level: '',
+        duration: '',
+        lessonsCount: 0,
+      );
+
   factory CartItem.fromJson(Map<String, dynamic> json) => CartItem(
         id: JsonUtils.asString(json['id']),
         title: JsonUtils.asString(json['title']),
@@ -86,6 +103,36 @@ class CartProvider extends ChangeNotifier {
     _items.add(CartItem.fromCourse(course));
     await _save();
     return true;
+  }
+
+  /// Cập nhật giá lưu trên máy theo giá mới nhất server báo (F1) để giỏ luôn hiện đúng, kể cả khi mất mạng
+  Future<void> updatePrices(Map<String, double> prices, Map<String, double> originalPrices) async {
+    var changed = false;
+    for (var i = 0; i < _items.length; i++) {
+      final item = _items[i];
+      final price = prices[item.id];
+      if (price == null) continue;
+      final original = originalPrices[item.id] ?? price;
+      if (price != item.price || original != item.originalPrice) {
+        _items[i] = CartItem(
+          id: item.id,
+          title: item.title,
+          imageUrl: item.imageUrl,
+          instructor: item.instructor,
+          price: price,
+          originalPrice: original,
+        );
+        changed = true;
+      }
+    }
+    if (changed) await _save();
+  }
+
+  /// Hoàn tác xóa khỏi giỏ
+  Future<void> restore(CartItem item) async {
+    if (contains(item.id)) return;
+    _items.add(item);
+    await _save();
   }
 
   Future<void> remove(String courseId) async {

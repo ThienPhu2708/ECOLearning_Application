@@ -5,6 +5,7 @@ import '../../core/storage/token_storage.dart';
 import '../../data/models/auth_session.dart';
 import '../../data/models/user.dart';
 import '../../data/repositories/auth_repository.dart';
+import '../../data/repositories/google_sign_in_service.dart';
 import '../../data/repositories/profile_repository.dart';
 
 /// Trạng thái đăng nhập dùng chung toàn app (khung chung T-0).
@@ -12,15 +13,22 @@ import '../../data/repositories/profile_repository.dart';
 /// Màn hình đọc bằng `context.watch<AuthProvider>()` (vd: Hồ sơ hiện [user]),
 /// gọi hành động bằng `context.read<AuthProvider>().login(...)`.
 class AuthProvider extends ChangeNotifier {
-  AuthProvider({AuthRepository? authRepository, ProfileRepository? profileRepository})
-      : _auth = authRepository ?? AuthRepository(),
-        _profile = profileRepository ?? ProfileRepository();
+  AuthProvider({
+    AuthRepository? authRepository,
+    ProfileRepository? profileRepository,
+  }) : _auth = authRepository ?? AuthRepository(),
+       _profile = profileRepository ?? ProfileRepository();
 
   final AuthRepository _auth;
   final ProfileRepository _profile;
 
   User? _user;
   bool _loggingOut = false;
+
+  /// main.dart gán: dọn dữ liệu cục bộ gắn với phiên (giỏ hàng) khi đăng xuất / hết phiên
+  Future<void> Function()? _onSessionCleared;
+  set onSessionCleared(Future<void> Function()? callback) =>
+      _onSessionCleared = callback;
 
   User? get user => _user;
   bool get isLoggedIn => TokenStorage.instance.hasToken;
@@ -57,12 +65,22 @@ class AuthProvider extends ChangeNotifier {
     required String otp,
     required String password,
   }) async {
-    await applySession(await _auth.register(fullName: fullName, email: email, otp: otp, password: password));
+    await applySession(
+      await _auth.register(
+        fullName: fullName,
+        email: email,
+        otp: otp,
+        password: password,
+      ),
+    );
   }
 
   /// Lưu phiên đăng nhập (dùng cho A1, A4, A12)
   Future<void> applySession(AuthSession session) async {
-    await TokenStorage.instance.save(session.token, expiresAt: session.expiresAt);
+    await TokenStorage.instance.save(
+      session.token,
+      expiresAt: session.expiresAt,
+    );
     _user = session.user;
     notifyListeners();
   }
@@ -88,6 +106,7 @@ class AuthProvider extends ChangeNotifier {
     } catch (_) {
       // Bỏ qua: token trên máy vẫn bị xóa bên dưới
     } finally {
+      await GoogleSignInService.instance.signOut();
       await _clear();
       _loggingOut = false;
     }
@@ -98,6 +117,8 @@ class AuthProvider extends ChangeNotifier {
 
   Future<void> _clear() async {
     await TokenStorage.instance.clear();
+    // Giỏ hàng thuộc về phiên đăng nhập, không để lại cho tài khoản kế tiếp
+    await _onSessionCleared?.call();
     _user = null;
     notifyListeners();
   }

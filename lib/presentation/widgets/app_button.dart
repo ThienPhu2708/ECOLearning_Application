@@ -65,15 +65,17 @@ class AppButton extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              if (icon != null) ...[
-                icon!,
-                const SizedBox(width: AppDimens.p8),
-              ],
-              Text(
-                text,
-                style: AppTypography.bodyMedium.copyWith(
-                  color: foregroundColor,
-                  fontWeight: FontWeight.w600,
+              if (icon != null) ...[icon!, const SizedBox(width: AppDimens.p8)],
+              Flexible(
+                child: Text(
+                  text,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.bodyMedium.copyWith(
+                    color: foregroundColor,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],
@@ -90,9 +92,7 @@ class AppButton extends StatelessWidget {
           elevation: 0,
           shadowColor: Colors.transparent,
           side: borderSide,
-          shape: RoundedRectangleBorder(
-            borderRadius: AppDimens.radiusButton,
-          ),
+          shape: RoundedRectangleBorder(borderRadius: AppDimens.radiusButton),
           padding: const EdgeInsets.symmetric(horizontal: AppDimens.p16),
         ),
         child: buttonChild,

@@ -1,9 +1,14 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_dimens.dart';
 import '../../../core/constants/app_typography.dart';
+import '../../../core/network/api_exception.dart';
+import '../../../data/repositories/auth_repository.dart';
+import '../../providers/auth_provider.dart';
 import '../../widgets/app_button.dart';
+import '../interests/interest_picker_screen.dart';
 
 /// Màn hình Đăng ký tài khoản Học viên quy trình 3 bước (UC1 & Section 4.1)
 class RegisterScreen extends StatefulWidget {
@@ -15,6 +20,8 @@ class RegisterScreen extends StatefulWidget {
 
 class _RegisterScreenState extends State<RegisterScreen> {
   int _currentStep = 1;
+  final AuthRepository _authRepo = AuthRepository();
+  bool _busy = false;
 
   // Controllers Step 1
   final _nameController = TextEditingController();
@@ -22,9 +29,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
   String? _step1Error;
 
   // Controllers Step 2
-  final List<TextEditingController> _otpControllers =
-      List.generate(6, (index) => TextEditingController());
-  final List<FocusNode> _otpFocusNodes = List.generate(6, (index) => FocusNode());
+  final List<TextEditingController> _otpControllers = List.generate(
+    6,
+    (index) => TextEditingController(),
+  );
+  final List<FocusNode> _otpFocusNodes = List.generate(
+    6,
+    (index) => FocusNode(),
+  );
   int _countdown = 60;
   Timer? _timer;
   String? _step2Error;
@@ -53,8 +65,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
     });
   }
 
-  // Xử lý chuyển bước 1 sang bước 2
-  void _onStep1Next() {
+  // Bước 1 -> 2: gửi OTP về email (A2)
+  Future<void> _onStep1Next() async {
     final name = _nameController.text.trim();
     final email = _emailController.text.trim().toLowerCase();
 
@@ -67,32 +79,77 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
 
-    // Kiểm tra trùng lặp email theo đặc tả
-    if (email == 'haiyen.learner@gmail.com') {
-      setState(() => _step1Error = 'Email này đã được đăng ký trong hệ thống!');
-      return;
-    }
-
-    setState(() {
-      _step1Error = null;
-      _currentStep = 2;
-    });
-    _startOtpTimer();
+    await _sendOtp(goNext: true);
   }
 
-  // Xử lý chuyển bước 2 sang bước 3
-  void _onStep2Verify() {
+  Future<void> _sendOtp({bool goNext = false}) async {
+    setState(() {
+      _busy = true;
+      _step1Error = null;
+      _step2Error = null;
+    });
+    try {
+      await _authRepo.sendRegisterOtp(
+        fullName: _nameController.text,
+        email: _emailController.text.toLowerCase(),
+      );
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        if (goNext) _currentStep = 2;
+      });
+      _startOtpTimer();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        final msg = e.fieldError('email') ?? e.message;
+        if (goNext) {
+          _step1Error = msg;
+        } else {
+          _step2Error = msg;
+        }
+      });
+    }
+  }
+
+  // Bước 2 -> 3: xác minh OTP (A3)
+  Future<void> _onStep2Verify() async {
     final otp = _otpControllers.map((c) => c.text).join();
     if (otp.length < 6) {
       setState(() => _step2Error = 'Vui lòng nhập đủ 6 chữ số mã xác thực');
       return;
     }
 
-    _timer?.cancel();
     setState(() {
+      _busy = true;
       _step2Error = null;
-      _currentStep = 3;
     });
+    try {
+      final valid = await _authRepo.verifyRegisterOtp(
+        email: _emailController.text.toLowerCase(),
+        otp: otp,
+      );
+      if (!mounted) return;
+      if (!valid) {
+        setState(() {
+          _busy = false;
+          _step2Error = 'Mã xác thực không đúng hoặc đã hết hạn';
+        });
+        return;
+      }
+      _timer?.cancel();
+      setState(() {
+        _busy = false;
+        _currentStep = 3;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _step2Error = e.fieldError('otp') ?? e.message;
+      });
+    }
   }
 
   // Tính toán độ mạnh mật khẩu (Yếu: Đỏ, Trung bình: Cam, Mạnh: Xanh)
@@ -110,13 +167,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return strength;
   }
 
-  // Hoàn tất đăng ký
-  void _onFinishRegister() {
+  // Hoàn tất đăng ký (A4): tạo tài khoản và đăng nhập luôn
+  Future<void> _onFinishRegister() async {
     final pass = _passController.text;
     final confirmPass = _confirmPassController.text;
 
-    if (pass.length < 8) {
-      setState(() => _step3Error = 'Mật khẩu phải có ít nhất 8 ký tự');
+    if (pass.length < 8 ||
+        _getPasswordStrength(pass) < 3 ||
+        !pass.contains(RegExp(r'[A-Z]'))) {
+      setState(
+        () => _step3Error =
+            'Mật khẩu tối thiểu 8 ký tự, gồm chữ in hoa, chữ số và ký tự đặc biệt',
+      );
       return;
     }
     if (pass != confirmPass) {
@@ -124,54 +186,26 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
 
-    // Thông báo đăng ký thành công
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: AppDimens.radiusCard),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16.0),
-              decoration: const BoxDecoration(
-                color: AppColors.successLight,
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.check_rounded,
-                color: AppColors.success,
-                size: 40,
-              ),
-            ),
-            const SizedBox(height: 16.0),
-            Text(
-              'Đăng ký thành công!',
-              style: AppTypography.titleMedium.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 8.0),
-            Text(
-              'Chào mừng bạn đến với cộng đồng học viên Edu Learner!',
-              textAlign: TextAlign.center,
-              style: AppTypography.bodyMedium.copyWith(
-                color: AppColors.textSecondary,
-              ),
-            ),
-            const SizedBox(height: 24.0),
-            AppButton(
-              text: 'Đăng nhập ngay',
-              onPressed: () {
-                Navigator.of(context).pop(); // pop dialog
-                Navigator.of(context).pop(); // pop register screen
-              },
-            ),
-          ],
-        ),
-      ),
-    );
+    setState(() {
+      _busy = true;
+      _step3Error = null;
+    });
+    try {
+      await context.read<AuthProvider>().register(
+        fullName: _nameController.text,
+        email: _emailController.text.toLowerCase(),
+        otp: _otpControllers.map((c) => c.text).join(),
+        password: pass,
+      );
+      if (!mounted) return;
+      await InterestGate.enter(context);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _step3Error = e.fieldError('password') ?? e.message;
+      });
+    }
   }
 
   @override
@@ -312,8 +346,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
             ),
             child: Row(
               children: [
-                const Icon(Icons.error_outline_rounded,
-                    color: AppColors.error, size: 20),
+                const Icon(
+                  Icons.error_outline_rounded,
+                  color: AppColors.error,
+                  size: 20,
+                ),
                 const SizedBox(width: AppDimens.p8),
                 Expanded(
                   child: Text(
@@ -361,6 +398,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
         AppButton(
           text: 'Tiếp tục',
+          isLoading: _busy,
           onPressed: _onStep1Next,
           icon: const Icon(Icons.arrow_forward_rounded, size: 18),
         ),
@@ -446,7 +484,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   ),
                 )
               : TextButton(
-                  onPressed: _startOtpTimer,
+                  onPressed: _busy ? null : () => _sendOtp(),
                   child: Text(
                     'Gửi lại mã OTP',
                     style: AppTypography.bodyMedium.copyWith(
@@ -460,6 +498,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
         AppButton(
           text: 'Xác thực mã OTP',
+          isLoading: _busy,
           onPressed: _onStep2Verify,
         ),
       ],
@@ -587,6 +626,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
         AppButton(
           text: 'Hoàn tất đăng ký',
+          isLoading: _busy,
           onPressed: _onFinishRegister,
         ),
       ],
