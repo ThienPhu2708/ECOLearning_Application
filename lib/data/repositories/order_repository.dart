@@ -16,8 +16,16 @@ class OrderRepository {
       JsonUtils.asMap(await _api.post('/cart/quote', data: {'courseIds': courseIds, 'couponCode': couponCode}));
 
   /// F2. Mã giảm giá trong ví (đánh dấu mã nào dùng được cho giỏ hiện tại)
-  Future<List<Map<String, dynamic>>> myCoupons(List<String> courseIds) async =>
-      JsonUtils.asMapList(await _api.get('/coupons/my', query: {'courseIds': courseIds.join(',')}));
+  Future<List<Map<String, dynamic>>> myCoupons(List<String> courseIds) async {
+    final data = await _api.get(
+      '/coupons/my',
+      query: {'courseIds': courseIds.join(',')},
+    );
+    // The shared API returns { bestCode, items }; keep accepting the old list
+    // shape while older server instances are being upgraded.
+    if (data is List) return JsonUtils.asMapList(data);
+    return JsonUtils.asMapList(JsonUtils.asMap(data)['items']);
+  }
 
   /// F3. Tạo đơn hàng: orderId, total, expiresAt, requiresPayment, paymentUrl (mở trong WebView)
   Future<Map<String, dynamic>> createOrder(

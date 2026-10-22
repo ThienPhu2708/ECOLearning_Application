@@ -17,6 +17,7 @@ import 'change_password_sheet.dart';
 import '../../../data/repositories/profile_repository.dart';
 import '../orders/order_history_screen.dart';
 import '../favorites/favorites_screen.dart';
+import '../coupons/coupon_wallet_screen.dart';
 import '../my_courses/certificates_screen.dart';
 import '../my_courses/my_courses_screen.dart';
 import '../learning_support/learning_data_scope.dart';
@@ -280,6 +281,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       Icons.receipt_long_rounded,
                       'Lịch sử đơn hàng & Hóa đơn',
                       onTap: _showOrderHistory,
+                    ),
+                    const Divider(),
+                    _buildSettingsTile(
+                      Icons.local_offer_outlined,
+                      'Mã giảm giá của tôi',
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => const CouponWalletScreen(),
+                        ),
+                      ),
                     ),
                     const Divider(),
                     const StudyReminderTile(),
