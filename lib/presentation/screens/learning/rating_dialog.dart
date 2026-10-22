@@ -116,7 +116,7 @@ class _RatingDialogState extends State<RatingDialog> {
                 ),
                 const SizedBox(height: 12.0),
                 Text(
-                  'Đánh giá khóa học',
+                  widget.course.myReviewRating == null ? 'Đánh giá khóa học' : 'Sửa đánh giá của tôi',
                   style: AppTypography.titleMedium.copyWith(
                     fontWeight: FontWeight.w800,
                     fontSize: 18.0,
@@ -183,7 +183,7 @@ class _RatingDialogState extends State<RatingDialog> {
                 const SizedBox(height: 20.0),
 
                 AppButton(
-                  text: 'Gửi đánh giá',
+                  text: widget.course.myReviewRating == null ? 'Gửi đánh giá' : 'Lưu thay đổi',
                   isLoading: _submitting,
                   onPressed: _submitting ? null : _handleSubmit,
                 ),

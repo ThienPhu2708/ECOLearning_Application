@@ -150,7 +150,13 @@ void main() {
     tester,
   ) async {
     await open(tester, Quiz());
-    await menu(tester, 'Sửa đánh giá');
+    await menu(tester, 'Đánh giá của tôi');
+    expect(find.byType(RatingDialog), findsNothing);
+    expect(find.text('Hữu ích'), findsOneWidget);
+    expect(find.text('4/5 ★'), findsOneWidget);
+    expect(find.descendant(of: find.byType(AlertDialog), matching: find.byType(TextField)), findsNothing);
+    await tester.tap(find.text('Sửa đánh giá'));
+    await tester.pumpAndSettle();
     expect(find.byType(RatingDialog), findsOneWidget);
     expect(find.text('Hữu ích'), findsOneWidget);
     expect(find.textContaining('4 / 5 sao'), findsOneWidget);

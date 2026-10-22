@@ -17,7 +17,7 @@ import '../instructor/instructor_screen.dart';
 import '../quiz/quiz_intro_screen.dart';
 import 'my_courses_controller.dart';
 import 'certificate_screen.dart';
-import '../learning/rating_dialog.dart';
+import '../learning/review_flow.dart';
 import '../quiz/quiz_results_screen.dart';
 import '../../../data/repositories/course_repository.dart';
 import '../../../data/repositories/review_repository.dart';
@@ -148,48 +148,18 @@ class MyCoursesScreenState extends State<MyCoursesScreen>
   Future<void> _openReview(Course course) async {
     if (_openingId != null || _reviewOpen || !course.hasCertificate) return;
     _reviewOpen = true;
-    setState(() => _openingId = course.id);
     try {
       final scope = LearningDataScope.read(context);
-      final detail =
-          await (widget.courseRepository ??
-                  scope?.courses ??
-                  CourseRepository())
-              .detail(course.id);
-      if (!mounted) return;
-      if (!detail.canReview) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Bạn cần học đủ bài và đạt quiz trước khi đánh giá.'),
-          ),
-        );
-        return;
-      }
-      setState(() => _openingId = null);
-      await RatingDialog.show(
+      await openCourseReview(
         context,
-        course: detail,
-        onSubmit: (rating, comment) async {
-          await (widget.reviews ?? scope?.reviews ?? ReviewRepository()).submit(
-            course.id,
-            rating: rating.toInt(),
-            comment: comment,
-          );
-          course.myReviewRating = rating;
-          course.myReviewComment = comment;
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Đã lưu đánh giá của bạn.')),
-            );
-          }
-        },
+        course,
+        courses:
+            widget.courseRepository ?? scope?.courses ?? CourseRepository(),
+        reviews: widget.reviews ?? scope?.reviews ?? ReviewRepository(),
       );
       if (mounted) await _controller.load();
-    } catch (e) {
-      if (mounted) showErrorSnackBar(context, e);
     } finally {
       _reviewOpen = false;
-      if (mounted) setState(() => _openingId = null);
     }
   }
 
@@ -752,11 +722,7 @@ class _LearningCourseCard extends StatelessWidget {
                               child: ListTile(
                                 contentPadding: EdgeInsets.zero,
                                 leading: const Icon(Icons.star_outline_rounded),
-                                title: Text(
-                                  course.myReviewRating == null
-                                      ? 'Đánh giá'
-                                      : 'Sửa đánh giá',
-                                ),
+                                title: Text('Đánh giá của tôi'),
                               ),
                             ),
                           ],

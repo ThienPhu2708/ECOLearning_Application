@@ -126,6 +126,10 @@ class LearningController extends ChangeNotifier {
             l.lastPositionSeconds = snapshot.$1;
           }
         }
+        if (current?.id == lessonId) {
+          current!.isCompleted = result.lessonCompleted;
+          current!.lastPositionSeconds = snapshot.$1;
+        }
         final old = overview;
         if (old != null) {
           overview = LearningOverview(
@@ -143,11 +147,16 @@ class LearningController extends ChangeNotifier {
         progressError = _pending.isEmpty ? null : progressError;
         _emit();
         // Eligibility belongs to the server, never infer it from a local timer.
-        if (result.lessonCompleted) {
+        if (result.lessonCompleted || snapshot.$1 >= snapshot.$2 * .8) {
           try {
             final latest = await repository.overview(courseId);
             if (!_disposed) {
               overview = latest;
+              final saved = latest.chapters.expand((c) => c.lessons)
+                  .where((l) => l.id == lessonId);
+              if (current?.id == lessonId && saved.isNotEmpty) {
+                current!.isCompleted = saved.first.isCompleted;
+              }
               _emit();
             }
           } catch (_) {

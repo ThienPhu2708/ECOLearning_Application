@@ -1,3 +1,4 @@
+import 'my_reviews_screen.dart';
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_dimens.dart';
@@ -316,6 +317,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             ),
                           );
                         },
+                      ),
+                    ),
+                    const Divider(),
+                    _buildSettingsTile(
+                      Icons.rate_review_outlined,
+                      'Đánh giá của tôi',
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const MyReviewsScreen(),
+                        ),
                       ),
                     ),
                     const Divider(),

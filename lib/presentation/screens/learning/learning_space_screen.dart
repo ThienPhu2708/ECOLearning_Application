@@ -1,3 +1,5 @@
+import 'review_flow.dart';
+import '../../../data/repositories/course_repository.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -15,7 +17,6 @@ import '../../../data/repositories/review_repository.dart';
 import '../../widgets/state_views.dart';
 import '../quiz/quiz_intro_screen.dart';
 import 'learning_controller.dart';
-import 'rating_dialog.dart';
 import 'lesson_notes_tab.dart';
 import '../../session/current_user.dart';
 
@@ -47,6 +48,7 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
   bool _allowPop = false;
   bool _switching = false;
   bool _completionSaveRequested = false;
+  bool _endSaveRequested = false;
   int _videoRequest = 0;
   bool _fullscreenOpen = false;
   Course get _course => widget.course;
@@ -95,6 +97,7 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
       _videoLoading = true;
       _videoError = null;
       _completionSaveRequested = false;
+      _endSaveRequested = false;
     });
     VideoPlayerController? next;
     try {
@@ -150,6 +153,10 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
         v.duration.inMilliseconds > 0 &&
         v.position.inMilliseconds >= v.duration.inMilliseconds * .8) {
       _completionSaveRequested = true;
+      unawaited(_saveProgress());
+    }
+    if (!_endSaveRequested && v.isInitialized && !v.hasError && v.isCompleted) {
+      _endSaveRequested = true;
       unawaited(_saveProgress());
     }
     if (v.hasError && _videoError == null) {
@@ -284,26 +291,22 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
     if (mounted) await _load();
   }
 
-  void _openRatingDialog() {
-    if (!_learning.canReview) return;
-    RatingDialog.show(
-      context,
-      course: _course,
-      onSubmit: (rating, comment) async {
-        await (widget.reviews ??
-                LearningDataScope.read(context)?.reviews ??
-                ReviewRepository())
-            .submit(_course.id, rating: rating.toInt(), comment: comment);
-        if (!mounted) return;
-        setState(() {
-          _course.myReviewRating = rating;
-          _course.myReviewComment = comment;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Đã lưu đánh giá của bạn.')),
-        );
-      },
-    );
+  bool _reviewOpening = false;
+  Future<void> _openRatingDialog() async {
+    if (!_learning.canReview || _reviewOpening) return;
+    _reviewOpening = true;
+    try {
+      final scope = LearningDataScope.read(context);
+      await openCourseReview(
+        context,
+        _course,
+        courses: scope?.courses ?? CourseRepository(),
+        reviews: widget.reviews ?? scope?.reviews ?? ReviewRepository(),
+      );
+      if (mounted) setState(() {});
+    } finally {
+      _reviewOpening = false;
+    }
   }
 
   @override

@@ -238,6 +238,23 @@ void main() {
       }
     },
   );
+  test('threshold save reads authoritative progress even when response completion lags', () async {
+    final repo = FakeLearning();
+    final c = LearningController(repo, 'course');
+    await c.load();
+    repo.write = (_, position, duration) async =>
+        const ProgressResult(lessonCompleted: false, courseProgress: 25);
+    repo.readOverview = () async {
+      final overview = makeOverview(review: true);
+      overview.chapters.first.lessons.last.isCompleted = true;
+      return overview;
+    };
+    await c.save('b', 80, 100);
+    expect(c.progress, 100);
+    expect(c.current!.isCompleted, isTrue);
+    expect(c.chapters.first.lessons.last.isCompleted, isTrue);
+    c.dispose();
+  });
   test('server completion refreshes review eligibility', () async {
     final repo = FakeLearning();
     final c = LearningController(repo, 'course');
