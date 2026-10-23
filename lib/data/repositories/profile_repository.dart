@@ -1,3 +1,4 @@
+import '../../core/network/api_exception.dart';
 import '../../core/config/api_config.dart';
 import '../../core/network/api_client.dart';
 import '../../core/utils/json_utils.dart';
@@ -39,6 +40,23 @@ class ProfileRepository {
     return ApiConfig.resolveMediaUrl(
       JsonUtils.asString(JsonUtils.asMap(data)['avatarUrl']),
     );
+  }
+
+  /// Confirm the persisted profile, rather than treating a local preview as a saved avatar.
+  Future<User> uploadAvatarAndReload(String filePath) async {
+    final uploadedUrl = await uploadAvatar(filePath);
+    if (uploadedUrl.trim().isEmpty) {
+      throw const ApiException(
+        message: 'Máy chủ chưa trả về ảnh đại diện mới. Vui lòng thử lại.',
+      );
+    }
+    final updated = await me();
+    if (updated.avatarUrl != uploadedUrl) {
+      throw const ApiException(
+        message: 'Máy chủ chưa lưu ảnh mới vào hồ sơ. Vui lòng thử lại.',
+      );
+    }
+    return updated;
   }
 
   /// A11. Đổi mật khẩu

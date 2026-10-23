@@ -430,15 +430,21 @@ class MockData {
   static final List<Coupon> availableCoupons = [
     const Coupon(
       code: 'CHAOMUNG2026',
-      discountPercent: 20.0,
+      title: 'Chào mừng 2026',
+      discountText: 'Giảm 20%',
+      conditions: [],
+      status: 'usable',
+      statusText: 'Có thể sử dụng',
       description: 'Giảm 20% cho học viên mới mừng năm học 2026',
-      isValid: true,
     ),
     const Coupon(
       code: 'KLTN2026',
-      discountPercent: 50.0,
+      title: 'Ưu đãi khóa luận',
+      discountText: 'Giảm 50%',
+      conditions: [],
+      status: 'usable',
+      statusText: 'Có thể sử dụng',
       description: 'Ưu đãi 50% đồ án Khóa luận Tốt nghiệp CNTT',
-      isValid: true,
     ),
   ];
 

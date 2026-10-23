@@ -206,7 +206,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   children: [
                     ProfileAvatar(
                       user: user,
-                      upload: ProfileRepository().uploadAvatar,
+                      upload: (path) async {
+                        final auth = context.read<AuthProvider>();
+                        final accountId = user.id;
+                        final updated = await ProfileRepository()
+                            .uploadAvatarAndReload(path);
+                        if (!mounted || auth.user?.id != accountId) {
+                          throw StateError(
+                            'Account changed during avatar upload',
+                          );
+                        }
+                        auth.updateUser(updated);
+                        return updated.avatarUrl;
+                      },
                     ),
                     const SizedBox(height: 12.0),
 
