@@ -1,5 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../category/category_courses_screen.dart';
 import '../learning_support/learning_data_scope.dart';
 import '../../widgets/course_favorite_button.dart';
@@ -11,10 +12,17 @@ import '../../../core/config/api_config.dart';
 import '../../../data/models/category.dart';
 import '../../../core/network/paged_result.dart';
 import '../../../data/models/course.dart';
+import '../../../data/models/coupon.dart';
+import '../../../data/repositories/coupon_repository.dart';
 import '../../../data/repositories/course_repository.dart';
 import '../../../data/repositories/recommendation_repository.dart';
+import '../../navigation/app_navigator.dart';
+import '../../providers/auth_provider.dart';
+import '../coupons/coupon_details_screen.dart';
+import '../coupons/coupon_wallet_screen.dart';
 import '../../widgets/state_views.dart';
 import '../../widgets/course_card.dart';
+import '../../widgets/coupon_voucher_card.dart';
 import '../../widgets/rating_stars.dart';
 import '../course_detail/course_detail_screen.dart';
 
@@ -34,6 +42,7 @@ class HomeScreenState extends State<HomeScreen> {
   RecommendationRepository get _recoRepo =>
       LearningDataScope.read(context)?.recommendations ??
       RecommendationRepository();
+  final CouponRepository _couponRepo = CouponRepository();
 
   // Danh mục bấm ở "Danh mục phổ biến" mở màn riêng nên khối khám phá bên dưới luôn hiện tất cả
   final String _selectedCategory = 'all';
@@ -43,6 +52,7 @@ class HomeScreenState extends State<HomeScreen> {
   List<Category> _categories = [];
   RecommendationResult? _recommend;
   List<Course> _popular = [];
+  List<Coupon> _promotions = [];
 
   // Khối "Khám phá khóa học" theo danh mục đang chọn (B2)
   bool _loadingCourses = false;
@@ -53,12 +63,68 @@ class HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _load();
+    _loadPromotions();
   }
 
   /// Tải song song: danh mục (B1), gợi ý (C1), khóa học phổ biến (B2 sort=popular), danh sách khóa học (B2)
   /// Làm mới dữ liệu. [silent] = true (kéo xuống để làm mới, quay lại từ màn khác) thì giữ nguyên
   /// nội dung đang hiện, không thay bằng vòng tải toàn trang.
-  Future<void> reload() => _load(silent: true);
+  Future<void> reload() async {
+    await Future.wait([_load(silent: true), _loadPromotions()]);
+  }
+
+  Future<void> _loadPromotions() async {
+    try {
+      final result = await _couponRepo.collectable();
+      if (!mounted) return;
+      setState(() => _promotions = result.coupons);
+    } catch (_) {
+      // Promotions are optional content; do not block the course home screen.
+    }
+  }
+
+  Future<void> _savePromotion(Coupon coupon) async {
+    if (!context.read<AuthProvider>().isLoggedIn) {
+      AppNavigator.toLogin(message: 'Đăng nhập để lưu mã ưu đãi vào ví.');
+      return;
+    }
+    try {
+      final result = await _couponRepo.save(coupon.code);
+      if (!mounted) return;
+      final alreadySaved = result['alreadySaved'] == true;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            alreadySaved
+                ? 'Mã ${coupon.code} đã có trong ví.'
+                : 'Đã lưu mã ${coupon.code} vào ví.',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      await _loadPromotions();
+    } catch (e) {
+      if (mounted) showErrorSnackBar(context, e);
+    }
+  }
+
+  void _openCouponWallet() {
+    if (!context.read<AuthProvider>().isLoggedIn) {
+      AppNavigator.toLogin(message: 'Đăng nhập để xem ví mã ưu đãi.');
+      return;
+    }
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const CouponWalletScreen()));
+  }
+
+  Future<void> _showPromotionDetails(Coupon coupon) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => CouponDetailsScreen(code: coupon.code),
+      ),
+    );
+  }
 
   Future<void> _load({bool silent = false}) async {
     if (!silent || _recommend == null) {
@@ -150,7 +216,7 @@ class HomeScreenState extends State<HomeScreen> {
           : _error != null
           ? ErrorView(error: _error, onRetry: _load)
           : RefreshIndicator(
-              onRefresh: () => _load(silent: true),
+              onRefresh: reload,
               color: AppColors.primary,
               child: SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(
@@ -163,6 +229,11 @@ class HomeScreenState extends State<HomeScreen> {
                     // 1. Khối Hero Banner
                     _buildHeroBanner(),
                     const SizedBox(height: 24.0),
+
+                    if (_promotions.isNotEmpty) ...[
+                      _buildPromotionSection(),
+                      const SizedBox(height: 24.0),
+                    ],
 
                     // 2. GỢI Ý RIÊNG CHO BẠN (tiêu đề đổi theo type của C1)
                     if (_recommend != null && _recommend!.items.isNotEmpty) ...[
@@ -200,6 +271,67 @@ class HomeScreenState extends State<HomeScreen> {
   }
 
   // Khối Hero Banner Gradient tím
+  Widget _buildPromotionSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: AppDimens.p16),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'ƯU ĐÃI DÀNH CHO BẠN',
+                      style: AppTypography.captionTiny.copyWith(
+                        color: AppColors.primary,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.4,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      'Mã khuyến mãi',
+                      style: AppTypography.titleMedium.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              TextButton.icon(
+                onPressed: _openCouponWallet,
+                icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                label: const Text('Ví mã của tôi'),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          height: CouponVoucherCard.height,
+          child: ListView.separated(
+            padding: const EdgeInsets.symmetric(horizontal: AppDimens.p16),
+            scrollDirection: Axis.horizontal,
+            itemCount: _promotions.length,
+            separatorBuilder: (_, _) => const SizedBox(width: AppDimens.p12),
+            itemBuilder: (context, index) {
+              final coupon = _promotions[index];
+              return CouponVoucherCard(
+                width: 330,
+                coupon: coupon,
+                onDetails: () => _showPromotionDetails(coupon),
+                onSave: coupon.saved ? null : () => _savePromotion(coupon),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildHeroBanner() {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: AppDimens.p16),
