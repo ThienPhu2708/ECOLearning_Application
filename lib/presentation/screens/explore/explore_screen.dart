@@ -3,9 +3,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_dimens.dart';
+import '../../../core/config/api_config.dart';
 import '../../../core/constants/app_typography.dart';
 import '../../../core/utils/text_search.dart';
 import '../../../data/models/category.dart';
+import '../../../core/network/paged_result.dart';
 import '../../../data/models/course.dart';
 import '../../../data/repositories/course_repository.dart';
 import '../learning_support/learning_data_scope.dart';
@@ -104,9 +106,13 @@ class _ExploreScreenState extends State<ExploreScreen> {
     super.dispose();
   }
 
-  Future<void> _fetch(int page) async {
+  // Kết quả đã lọc theo từ khóa, giữ lại để chuyển trang không phải tải lại
+  List<Course> _matches = [];
+  String? _matchesKey;
+
+  Future<PagedResult<Course>> _load(int page, int pageSize) {
     final f = _filterCriteria;
-    final result = await _repo.courses(
+    return _repo.courses(
       q: _searchQuery,
       categoryId: _categoryId,
       level: f.level == 'Tất cả' ? null : f.level,
@@ -114,13 +120,76 @@ class _ExploreScreenState extends State<ExploreScreen> {
       minRating: f.minRating > 0 ? f.minRating : null,
       sort: f.sort,
       page: page,
+      pageSize: pageSize,
     );
+  }
+
+  /// Khóa khớp từ khóa ở tên khóa, giảng viên hoặc lĩnh vực (server còn tìm cả
+  /// trong mô tả nên trả nhiều khóa không liên quan). Khớp nguyên từ xếp trước
+  /// khớp đầu từ; trong mỗi nhóm: tên khóa, giảng viên, rồi lĩnh vực. Cùng mức
+  /// thì giữ thứ tự của server.
+  List<Course> _relevant(List<Course> all) {
+    final q = _searchQuery;
+    final scored = <(int, int, Course)>[];
+    for (var i = 0; i < all.length; i++) {
+      final c = all[i];
+      final every = '${c.title} ${c.instructor} ${c.category}';
+      final score = TextSearch.contains(c.title, q, wholeWord: true)
+          ? 0
+          : TextSearch.contains(c.instructor, q, wholeWord: true)
+          ? 1
+          : TextSearch.contains(every, q, wholeWord: true)
+          ? 2
+          : TextSearch.contains(c.title, q)
+          ? 3
+          : TextSearch.contains(c.instructor, q)
+          ? 4
+          : TextSearch.contains(every, q)
+          ? 5
+          : -1;
+      if (score >= 0) scored.add((score, i, c));
+    }
+    scored.sort((a, b) {
+      final byScore = a.$1.compareTo(b.$1);
+      return byScore != 0 ? byScore : a.$2.compareTo(b.$2);
+    });
+    return [for (final e in scored) e.$3];
+  }
+
+  Future<void> _fetch(int page) async {
+    if (_searchQuery.isEmpty) {
+      final result = await _load(page, ApiConfig.defaultPageSize);
+      _courses
+        ..clear()
+        ..addAll(result.items);
+      _page = result.page;
+      _total = result.total;
+      _totalPages = result.totalPages < 1 ? 1 : result.totalPages;
+      return;
+    }
+
+    // Có từ khóa: tải các trang của server (tối đa 5 x 50 khóa), lọc lại rồi
+    // tự chia trang để số lượng và số trang khớp với những gì hiển thị.
+    final f = _filterCriteria;
+    final key =
+        '$_searchQuery|$_categoryId|${f.level}|${f.onlyFree}|${f.minRating}|${f.sort}';
+    if (_matchesKey != key) {
+      final all = <Course>[];
+      for (var p = 1; p <= 5; p++) {
+        final result = await _load(p, 50);
+        all.addAll(result.items);
+        if (!result.hasMore) break;
+      }
+      _matches = _relevant(all);
+      _matchesKey = key;
+    }
+    const size = ApiConfig.defaultPageSize;
+    _total = _matches.length;
+    _totalPages = _total == 0 ? 1 : (_total / size).ceil();
+    _page = page.clamp(1, _totalPages);
     _courses
       ..clear()
-      ..addAll(result.items);
-    _page = result.page;
-    _total = result.total;
-    _totalPages = result.totalPages < 1 ? 1 : result.totalPages;
+      ..addAll(_matches.skip((_page - 1) * size).take(size));
   }
 
   /// Tìm lại từ trang 1 (đổi từ khóa, bộ lọc, sắp xếp, hoặc bấm "Thử lại")
