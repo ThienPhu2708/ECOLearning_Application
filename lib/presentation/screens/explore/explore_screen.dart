@@ -4,11 +4,13 @@ import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_dimens.dart';
 import '../../../core/constants/app_typography.dart';
+import '../../../core/utils/text_search.dart';
 import '../../../data/models/category.dart';
 import '../../../data/models/course.dart';
 import '../../../data/repositories/course_repository.dart';
 import '../learning_support/learning_data_scope.dart';
 import '../../widgets/course_card.dart';
+import '../../widgets/instructor_strip.dart';
 import '../../widgets/pagination_bar.dart';
 import '../../widgets/state_views.dart';
 import '../course_detail/course_detail_screen.dart';
@@ -49,6 +51,15 @@ class _ExploreScreenState extends State<ExploreScreen> {
   // Gợi ý từ khóa (B5): q rỗng thì là từ khóa thịnh hành
   List<String> _keywords = [];
 
+  // Danh bạ giảng viên (gom từ B2) để tìm theo tên không cần dấu
+  List<InstructorEntry> _allInstructors = [];
+
+  List<InstructorEntry> get _matchedInstructors => _searchQuery.isEmpty
+      ? const []
+      : _allInstructors
+            .where((i) => TextSearch.contains(i.name, _searchQuery))
+            .toList();
+
   bool get _hasActiveFilter => _filterCriteria.hasFilter;
 
   @override
@@ -56,7 +67,24 @@ class _ExploreScreenState extends State<ExploreScreen> {
     super.initState();
     _loadSuggestions('');
     _loadCategories();
+    _loadInstructors();
     _search();
+  }
+
+  Future<void> _loadInstructors() async {
+    try {
+      final all = <Course>[];
+      var page = 1;
+      while (page <= 5) {
+        final result = await _repo.courses(sort: 'popular', pageSize: 50, page: page);
+        all.addAll(result.items);
+        if (!result.hasMore) break;
+        page++;
+      }
+      if (mounted) setState(() => _allInstructors = InstructorEntry.group(all));
+    } catch (_) {
+      // Không có danh bạ thì chỉ mất dải giảng viên, tìm khóa học vẫn dùng được
+    }
   }
 
   Future<void> _loadCategories() async {
@@ -327,6 +355,23 @@ class _ExploreScreenState extends State<ExploreScreen> {
               ),
             ),
             const SizedBox(height: 12.0),
+
+            // 2b. Giảng viên khớp với từ khóa
+            if (_matchedInstructors.isNotEmpty) ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AppDimens.p16),
+                child: Text(
+                  'Giảng viên',
+                  style: AppTypography.labelSmall.copyWith(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8.0),
+              InstructorStrip(instructors: _matchedInstructors),
+              const SizedBox(height: 8.0),
+            ],
 
             // 3. Số lượng kết quả
             Padding(

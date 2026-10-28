@@ -13,6 +13,7 @@ import '../../../data/repositories/order_repository.dart';
 import '../../navigation/app_navigator.dart';
 import '../../providers/cart_provider.dart';
 import '../../widgets/app_button.dart';
+import '../../widgets/price_display.dart';
 import '../../widgets/state_views.dart';
 import '../course_detail/course_detail_screen.dart';
 import '../payment/payment_result_screen.dart';
@@ -437,27 +438,10 @@ class _CartScreenState extends State<CartScreen> {
                   ),
                 ),
                 const SizedBox(height: 6.0),
-                Wrap(
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  spacing: 8.0,
-                  children: [
-                    Text(
-                      AppFormatters.formatCurrency(price),
-                      style: AppTypography.bodyMedium.copyWith(
-                        color: AppColors.primary,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    if (original > price) ...[
-                      Text(
-                        AppFormatters.formatCurrency(original),
-                        style: AppTypography.captionTiny.copyWith(
-                          color: AppColors.textMuted,
-                          decoration: TextDecoration.lineThrough,
-                        ),
-                      ),
-                    ],
-                  ],
+                PriceDisplay(
+                  price: price,
+                  originalPrice: original,
+                  size: PriceSize.small,
                 ),
               ],
             ),

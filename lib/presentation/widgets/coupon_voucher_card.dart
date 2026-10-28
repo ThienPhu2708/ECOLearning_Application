@@ -15,6 +15,7 @@ class CouponVoucherCard extends StatelessWidget {
     this.onSave,
   });
 
+  // Dùng cùng chiều cao ở trang chủ và ví để các thẻ luôn thẳng hàng.
   static const double height = 110;
 
   final Coupon coupon;

@@ -7,7 +7,6 @@ import '../../widgets/course_favorite_button.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_dimens.dart';
 import '../../../core/constants/app_typography.dart';
-import '../../../core/utils/formatters.dart';
 import '../../../core/config/api_config.dart';
 import '../../../data/models/category.dart';
 import '../../../core/network/paged_result.dart';
@@ -23,6 +22,8 @@ import '../coupons/coupon_wallet_screen.dart';
 import '../../widgets/state_views.dart';
 import '../../widgets/course_card.dart';
 import '../../widgets/coupon_voucher_card.dart';
+import '../../widgets/instructor_strip.dart';
+import '../../widgets/price_display.dart';
 import '../../widgets/rating_stars.dart';
 import '../course_detail/course_detail_screen.dart';
 
@@ -79,7 +80,7 @@ class HomeScreenState extends State<HomeScreen> {
       if (!mounted) return;
       setState(() => _promotions = result.coupons);
     } catch (_) {
-      // Promotions are optional content; do not block the course home screen.
+      // Khuyến mãi là nội dung bổ sung; lỗi API không được chặn trang khóa học.
     }
   }
 
@@ -252,6 +253,12 @@ class HomeScreenState extends State<HomeScreen> {
                     // 4. KHÓA HỌC PHỔ BIẾN
                     if (_popular.isNotEmpty) ...[
                       _buildTrendingSection(),
+                      const SizedBox(height: 24.0),
+                    ],
+
+                    // 4a. GIẢNG VIÊN NỔI BẬT
+                    if (_instructors.isNotEmpty) ...[
+                      _buildInstructorSection(),
                       const SizedBox(height: 24.0),
                     ],
 
@@ -594,27 +601,10 @@ class HomeScreenState extends State<HomeScreen> {
                             runSpacing: 12,
                             alignment: WrapAlignment.spaceBetween,
                             children: [
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    AppFormatters.formatCurrency(course.price),
-                                    style: AppTypography.titleMedium.copyWith(
-                                      color: AppColors.primary,
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 18.0,
-                                    ),
-                                  ),
-                                  Text(
-                                    AppFormatters.formatCurrency(
-                                      course.originalPrice,
-                                    ),
-                                    style: AppTypography.captionTiny.copyWith(
-                                      color: AppColors.textMuted,
-                                      decoration: TextDecoration.lineThrough,
-                                    ),
-                                  ),
-                                ],
+                              PriceDisplay(
+                                price: course.price,
+                                originalPrice: course.originalPrice,
+                                stacked: true,
                               ),
                               ElevatedButton(
                                 style: ElevatedButton.styleFrom(
@@ -758,6 +748,32 @@ class HomeScreenState extends State<HomeScreen> {
         )
         .take(10)
         .toList();
+  }
+
+  /// Giảng viên gom từ những danh sách đã tải (API chưa có endpoint giảng viên)
+  List<InstructorEntry> get _instructors => InstructorEntry.group([
+    ...?_recommend?.items,
+    ..._popular,
+    ..._courses,
+  ]).take(10).toList();
+
+  Widget _buildInstructorSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: AppDimens.p16),
+          child: Text(
+            'Giảng viên nổi bật',
+            style: AppTypography.titleMedium.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+        const SizedBox(height: 12.0),
+        InstructorStrip(instructors: _instructors),
+      ],
+    );
   }
 
   Widget _buildSaleSection() {
