@@ -39,6 +39,7 @@ class _CartScreenState extends State<CartScreen> {
   CartQuote? _quote;
   Object? _quoteError;
   bool _quoting = false;
+  int _quoteRequest = 0; // mã lần báo giá mới nhất (F1)
   String? _appliedCode;
   String? _couponError;
   bool _isProcessing = false;
@@ -58,6 +59,9 @@ class _CartScreenState extends State<CartScreen> {
   /// F1. Báo giá lại theo giỏ hiện tại. Trả false nếu lỗi (lỗi coupon được ghi vào [_couponError]).
   Future<bool> _refreshQuote({String? coupon}) async {
     final cart = context.read<CartProvider>();
+    // Xóa / hoàn tác / áp mã liên tiếp gọi báo giá chồng nhau: chỉ nhận kết quả của lần gọi mới nhất,
+    // để báo giá cũ về muộn không ghi đè tổng tiền của giỏ hiện tại
+    final request = ++_quoteRequest;
     if (cart.isEmpty) {
       setState(() {
         _quote = null;
@@ -74,10 +78,10 @@ class _CartScreenState extends State<CartScreen> {
     final code = coupon ?? _appliedCode;
     try {
       final data = await _orderRepo.quote(cart.ids, couponCode: code);
-      if (!mounted) return false;
+      if (!mounted || request != _quoteRequest) return false;
       final quote = CartQuote.fromJson(data, requestedCoupon: code);
       await cart.updatePrices(quote.prices, quote.originalPrices);
-      if (!mounted) return false;
+      if (!mounted || request != _quoteRequest) return false;
 
       String? couponError;
       if (code != null && !quote.couponValid) {
@@ -96,7 +100,7 @@ class _CartScreenState extends State<CartScreen> {
       }
       return couponError == null;
     } on ApiException catch (e) {
-      if (!mounted) return false;
+      if (!mounted || request != _quoteRequest) return false;
       setState(() {
         _quoting = false;
         if (code != null && e.code.toUpperCase().contains('COUPON')) {
@@ -114,6 +118,14 @@ class _CartScreenState extends State<CartScreen> {
         _appliedCode = null;
         return _refreshQuote().then((_) => false);
       }
+      return false;
+    } catch (e) {
+      // Lỗi ngoài dự kiến (vd. dữ liệu trả về sai định dạng): không để nút thanh toán kẹt ở "đang tính"
+      if (!mounted || request != _quoteRequest) return false;
+      setState(() {
+        _quoting = false;
+        _quoteError = e;
+      });
       return false;
     }
   }

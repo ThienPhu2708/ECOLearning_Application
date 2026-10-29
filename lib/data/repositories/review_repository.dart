@@ -22,4 +22,17 @@ class ReviewRepository {
   Future<void> delete(String courseId) async {
     await _api.delete('/courses/$courseId/reviews');
   }
+
+  /// E2. "Bạn thấy hữu ích?": gửi lại đúng lựa chọn đang có thì bỏ bình chọn.
+  /// Trả `{ reviewId, helpfulCount, notHelpfulCount, myVote }` (myVote: true / false / null).
+  /// Lỗi 403 `OWN_REVIEW`: tự bình chọn đánh giá của mình.
+  Future<Map<String, dynamic>> vote(
+    String reviewId, {
+    required bool helpful,
+  }) async => JsonUtils.asMap(
+    await _api.post(
+      '/reviews/${Uri.encodeComponent(reviewId)}/helpful',
+      data: {'helpful': helpful},
+    ),
+  );
 }

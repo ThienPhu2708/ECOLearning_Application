@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -12,7 +14,9 @@ import '../../../data/models/category.dart';
 import '../../../core/network/paged_result.dart';
 import '../../../data/models/course.dart';
 import '../../../data/models/coupon.dart';
+import '../../../data/repositories/chatbot_repository.dart';
 import '../../../data/repositories/coupon_repository.dart';
+import '../chatbot/chatbot_screen.dart';
 import '../../../data/repositories/course_repository.dart';
 import '../../../data/repositories/recommendation_repository.dart';
 import '../../navigation/app_navigator.dart';
@@ -20,6 +24,7 @@ import '../../providers/auth_provider.dart';
 import '../coupons/coupon_details_screen.dart';
 import '../coupons/coupon_wallet_screen.dart';
 import '../../widgets/state_views.dart';
+import '../../widgets/chatbot_bubble.dart';
 import '../../widgets/course_card.dart';
 import '../../widgets/coupon_voucher_card.dart';
 import '../../../data/models/home_feed.dart';
@@ -68,12 +73,55 @@ class HomeScreenState extends State<HomeScreen> {
   Object? _coursesError;
   List<Course> _courses = [];
 
+  // Bong bóng Trợ lý Elearning chỉ hiện khi server bật chatbot (giống bong bóng chat trên trang chủ web).
+  // Lần đầu trong phiên chạy app: sau 1,5 giây hiện lời chào cạnh bong bóng và badge 1 tin chưa đọc.
+  static bool _chatbotGreeted = false;
+  bool _chatbotAvailable = false;
+  bool _chatbotTeaser = false;
+  int _chatbotUnread = 0;
+  Timer? _chatbotGreetTimer;
+
+  @override
+  void dispose() {
+    _chatbotGreetTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _openChatbot() async {
+    _chatbotGreetTimer?.cancel();
+    setState(() {
+      _chatbotTeaser = false;
+      _chatbotUnread = 0;
+    });
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const ChatbotScreen()),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
     _load();
     _loadPromotions();
     _loadFeed();
+    _checkChatbot();
+  }
+
+  Future<void> _checkChatbot() async {
+    final available = await ChatbotRepository().isAvailable();
+    if (!mounted || available == _chatbotAvailable) return;
+    setState(() => _chatbotAvailable = available);
+    if (available && !_chatbotGreeted) {
+      _chatbotGreeted = true;
+      _chatbotGreetTimer = Timer(const Duration(milliseconds: 1500), () {
+        if (mounted) {
+          setState(() {
+            _chatbotTeaser = true;
+            _chatbotUnread = 1;
+          });
+        }
+      });
+    }
   }
 
   /// Tải song song: danh mục (B1), gợi ý (C1), khóa học phổ biến (B2 sort=popular), danh sách khóa học (B2)
@@ -254,6 +302,14 @@ class HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
+      floatingActionButton: _chatbotAvailable
+          ? ChatbotBubble(
+              onPressed: _openChatbot,
+              unread: _chatbotUnread,
+              showTeaser: _chatbotTeaser,
+              onDismissTeaser: () => setState(() => _chatbotTeaser = false),
+            )
+          : null,
       body: _loading
           ? const LoadingView()
           : _error != null

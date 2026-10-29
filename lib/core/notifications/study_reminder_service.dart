@@ -251,7 +251,7 @@ class StudyReminderService {
     if (!await notifications.requestPermission()) {
       throw const ApiException(
         message:
-            'Thông báo chưa được cho phép. Vào Cài đặt điện thoại → Thông báo → ECOLearning để bật quyền.',
+            'Thông báo chưa được cho phép. Vào Cài đặt điện thoại → Thông báo → E-Learning để bật quyền.',
       );
     }
     final exact = await notifications.requestExactPermission();

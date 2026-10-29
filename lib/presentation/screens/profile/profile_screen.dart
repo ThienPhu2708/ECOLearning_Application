@@ -13,6 +13,7 @@ import 'profile_avatar.dart';
 import 'study_reminder_tile.dart';
 import 'help_terms_screen.dart';
 import 'logout_dialog.dart';
+import '../chatbot/chatbot_screen.dart';
 import 'change_password_sheet.dart';
 import '../../../data/repositories/profile_repository.dart';
 import '../orders/order_history_screen.dart';
@@ -368,6 +369,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         context,
                         MaterialPageRoute<void>(
                           builder: (_) => const FavoritesScreen(),
+                        ),
+                      ),
+                    ),
+                    const Divider(),
+                    _buildSettingsTile(
+                      Icons.smart_toy_outlined,
+                      'Trợ lý Elearning',
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => const ChatbotScreen(),
                         ),
                       ),
                     ),

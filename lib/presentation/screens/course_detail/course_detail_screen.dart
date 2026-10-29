@@ -19,13 +19,14 @@ import '../../providers/cart_provider.dart';
 import '../../widgets/app_button.dart';
 import '../../widgets/course_card.dart';
 import '../../widgets/rating_stars.dart';
+import '../../widgets/review_helpful_bar.dart';
 import '../../widgets/state_views.dart';
 import '../cart/cart_screen.dart';
 import '../instructor/instructor_screen.dart';
 import '../learning/learning_space_screen.dart';
 
 /// Màn hình Chi tiết Khóa học theo QuyChuanThietKe_App.md Mục 4.4 & UC4
-/// API: B3 (chi tiết), B4 (đánh giá), B6 (click), B7 (tương tự), B8 (xem thử), D1 (yêu thích), F6 (học miễn phí).
+/// API: B3 (chi tiết), B4 (đánh giá), E2 (đánh giá hữu ích), B6 (click), B7 (tương tự), B8 (xem thử), D1 (yêu thích), F6 (học miễn phí).
 class CourseDetailScreen extends StatefulWidget {
   final Course course;
 
@@ -822,6 +823,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
                 ),
                 JsonUtils.asString(_reviews[i]['comment']),
                 JsonUtils.asDouble(_reviews[i]['rating']),
+                review: _reviews[i],
               ),
             ],
         ],
@@ -829,7 +831,13 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
     );
   }
 
-  Widget _buildReviewItem(String name, String comment, double star) {
+  Widget _buildReviewItem(
+    String name,
+    String comment,
+    double star, {
+    Map<String, dynamic>? review,
+  }) {
+    final reviewId = JsonUtils.asString(review?['id']);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -854,6 +862,11 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
               height: 1.4,
             ),
           ),
+        ],
+        // "Bạn thấy hữu ích?" (E2)
+        if (review != null && reviewId.isNotEmpty) ...[
+          const SizedBox(height: 8.0),
+          ReviewHelpfulBar(key: ValueKey('helpful/$reviewId'), review: review),
         ],
       ],
     );

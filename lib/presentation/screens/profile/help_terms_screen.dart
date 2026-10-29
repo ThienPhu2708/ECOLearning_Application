@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
+import 'contact_screen.dart';
 
 class HelpTermsScreen extends StatelessWidget {
   const HelpTermsScreen({super.key});
@@ -98,6 +99,8 @@ class HelpTermsScreen extends StatelessWidget {
               ),
               const SizedBox(height: 20),
               for (final item in _questions) _question(item.$1, item.$2),
+              const SizedBox(height: 8),
+              _contactCard(context),
             ],
           ),
           ListView(
@@ -193,6 +196,42 @@ class HelpTermsScreen extends StatelessWidget {
         ),
       ),
     ],
+  );
+
+  // Chưa tìm thấy câu trả lời: mở form Liên hệ hỗ trợ (J3)
+  Widget _contactCard(BuildContext context) => Container(
+    padding: const EdgeInsets.all(18),
+    decoration: BoxDecoration(
+      color: AppColors.primaryLight,
+      borderRadius: BorderRadius.circular(16),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Chưa tìm thấy câu trả lời?',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+            color: AppColors.textHeading,
+          ),
+        ),
+        const SizedBox(height: 6),
+        const Text(
+          'Gửi câu hỏi cho đội ngũ hỗ trợ, chúng mình sẽ phản hồi qua email.',
+          style: TextStyle(color: AppColors.textSecondary, height: 1.5),
+        ),
+        const SizedBox(height: 12),
+        FilledButton.icon(
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute<void>(builder: (_) => const ContactScreen()),
+          ),
+          icon: const Icon(Icons.mail_outline_rounded, size: 18),
+          label: const Text('Liên hệ hỗ trợ'),
+        ),
+      ],
+    ),
   );
 
   Widget _question(String title, String answer) => Container(

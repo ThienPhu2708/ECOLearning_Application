@@ -14,6 +14,8 @@ import '../../../data/models/course.dart';
 import '../../../data/models/lesson.dart';
 import '../../../data/repositories/learning_repository.dart';
 import '../../../data/repositories/review_repository.dart';
+import '../../../data/repositories/support_repository.dart';
+import 'report_violation_sheet.dart';
 import '../../widgets/state_views.dart';
 import '../quiz/quiz_intro_screen.dart';
 import 'learning_controller.dart';
@@ -27,6 +29,7 @@ class LearningSpaceScreen extends StatefulWidget {
   final LearningRepository? repository;
   final LessonResourcesRepository? resources;
   final ReviewRepository? reviews;
+  final SupportRepository? support;
   final VideoPlayerController Function(Uri)? videoControllerFactory;
   const LearningSpaceScreen({
     super.key,
@@ -34,6 +37,7 @@ class LearningSpaceScreen extends StatefulWidget {
     this.repository,
     this.resources,
     this.reviews,
+    this.support,
     this.videoControllerFactory,
   });
   @override
@@ -293,6 +297,18 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
       ),
     );
     if (mounted) await _load();
+  }
+
+  Future<void> _openReport() async {
+    await _video?.pause();
+    if (!mounted) return;
+    await showReportViolationSheet(
+      context,
+      courseId: _course.id,
+      lessonId: _currentLesson.id,
+      lessonTitle: _currentLesson.title,
+      repository: widget.support,
+    );
   }
 
   bool _reviewOpening = false;
@@ -569,6 +585,17 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
                   ),
                   onPressed: _learning.canReview ? _openRatingDialog : null,
                 ),
+              // Báo cáo vi phạm (J2): chỉ học viên đã đăng ký mới vào được không gian học
+              IconButton(
+                tooltip: 'Báo cáo vi phạm',
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(
+                  Icons.flag_outlined,
+                  color: AppColors.textSecondary,
+                  size: 20,
+                ),
+                onPressed: _openReport,
+              ),
             ],
           ),
           const SizedBox(height: 10.0),

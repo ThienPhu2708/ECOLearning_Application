@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'core/notifications/study_reminder_service.dart';
 import 'package:provider/provider.dart';
 
+import 'core/error_reporting.dart';
 import 'core/network/api_client.dart';
 import 'core/storage/token_storage.dart';
 import 'core/theme/app_theme.dart';
@@ -13,6 +14,7 @@ import 'presentation/screens/splash/splash_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  installErrorReporting();
 
   // Nạp token đã lưu và giỏ hàng trên máy trước khi vẽ màn hình đầu tiên
   await TokenStorage.instance.load();
@@ -56,7 +58,7 @@ class EcoLearningApp extends StatelessWidget {
         ChangeNotifierProvider<CartProvider>.value(value: cart),
       ],
       child: MaterialApp(
-        title: 'ECOLearning',
+        title: 'E-Learning',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.lightTheme,
         navigatorKey: AppNavigator.navigatorKey,
