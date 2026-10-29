@@ -25,6 +25,7 @@ import '../coupons/coupon_details_screen.dart';
 import '../coupons/coupon_wallet_screen.dart';
 import '../../widgets/state_views.dart';
 import '../../widgets/chatbot_bubble.dart';
+import '../../widgets/promo_ad_presenter.dart';
 import '../../widgets/course_card.dart';
 import '../../widgets/coupon_voucher_card.dart';
 import '../../../data/models/home_feed.dart';
@@ -105,6 +106,12 @@ class HomeScreenState extends State<HomeScreen> {
     _loadPromotions();
     _loadFeed();
     _checkChatbot();
+    // Popup quảng cáo ưu đãi (ảnh chiến dịch / chương trình, ưu đãi thân thiết): mỗi lượt mở app hiện một ảnh chưa xem
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future<void>.delayed(const Duration(milliseconds: 900), () {
+        if (mounted) PromoAdPresenter.showOnHome(context);
+      });
+    });
   }
 
   Future<void> _checkChatbot() async {
