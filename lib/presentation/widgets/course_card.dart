@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
+import 'price_display.dart';
 import '../../core/constants/app_dimens.dart';
 import '../../core/constants/app_typography.dart';
-import '../../core/utils/formatters.dart';
 import '../../data/models/course.dart';
 import 'rating_stars.dart';
 import 'course_favorite_button.dart';
@@ -313,31 +313,10 @@ class CourseCard extends StatelessWidget {
                       FittedBox(
                         fit: BoxFit.scaleDown,
                         alignment: Alignment.centerLeft,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.baseline,
-                          textBaseline: TextBaseline.alphabetic,
-                          children: [
-                            Text(
-                              AppFormatters.formatCurrency(course.price),
-                              style: AppTypography.titleMedium.copyWith(
-                                color: AppColors.primary,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            if (course.originalPrice > course.price) ...[
-                              const SizedBox(width: AppDimens.p8),
-                              Text(
-                                AppFormatters.formatCurrency(
-                                  course.originalPrice,
-                                ),
-                                style: AppTypography.labelSmall.copyWith(
-                                  color: AppColors.textMuted,
-                                  decoration: TextDecoration.lineThrough,
-                                ),
-                              ),
-                            ],
-                          ],
+                        child: PriceDisplay(
+                          price: course.price,
+                          originalPrice: course.originalPrice,
+                          showPercent: false, // nhãn -X% đã nằm trên ảnh bìa
                         ),
                       ),
                     ],
@@ -508,26 +487,12 @@ class CourseCard extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.end,
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        // Giá cũ gạch ngang ở trên, giá mới ở dưới
-                        if (onSale)
-                          Text(
-                            AppFormatters.formatCurrency(course.originalPrice),
-                            style: AppTypography.labelSmall.copyWith(
-                              color: AppColors.textMuted,
-                              decoration: TextDecoration.lineThrough,
-                            ),
-                          ),
-                        Text(
-                          AppFormatters.formatCurrency(course.price),
-                          style: AppTypography.titleMedium.copyWith(
-                            color: AppColors.primary,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ],
+                    // Giá cũ gạch ngang + nhãn -X% ở trên, giá mới ở dưới
+                    PriceDisplay(
+                      price: course.price,
+                      originalPrice: course.originalPrice,
+                      stacked: true,
+                      alignment: CrossAxisAlignment.end,
                     ),
                     if (onFavoriteTap != null ||
                         (imageOverlay == null && !course.isEnrolled)) ...[

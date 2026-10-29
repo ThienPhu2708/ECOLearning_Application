@@ -52,6 +52,7 @@ class _CouponDetailsScreenState extends State<CouponDetailsScreen> {
       final result = await _repo.details(widget.code);
       if (!mounted) return;
       setState(() {
+        // API mới bọc dữ liệu trong `coupon`; vẫn nhận response phẳng cũ.
         _details = JsonUtils.asMap(result['coupon'] ?? result);
         _loading = false;
       });
@@ -131,6 +132,7 @@ class _CouponDetailsScreenState extends State<CouponDetailsScreen> {
   }
 
   bool get _canSave =>
+      // Chỉ hiện nút lưu khi API xác nhận mã còn thu thập được và chưa lưu.
       JsonUtils.asBool(_details['canSave']) &&
       !JsonUtils.asBool(_details['saved']);
 

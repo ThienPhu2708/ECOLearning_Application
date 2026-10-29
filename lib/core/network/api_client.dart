@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:dio/dio.dart';
 
@@ -65,6 +66,74 @@ class ApiClient {
 
   Future<dynamic> delete(String path, {Object? data}) =>
       _send(() => _dio.delete(path, data: data));
+
+  Future<List<int>> downloadDocument(String id) async {
+    final result = await _send(() async {
+      try {
+        final response = await _dio.get<List<int>>(
+          '/documents/${Uri.encodeComponent(id)}/download',
+          options: Options(
+            responseType: ResponseType.bytes,
+            followRedirects: false,
+            validateStatus: (status) =>
+                status != null && (status < 300 || status == 302),
+          ),
+        );
+        if (response.statusCode == 302) {
+          final location = response.headers.value('location');
+          final target = location == null
+              ? null
+              : response.realUri.resolve(location);
+          if (target == null || !['https', 'http'].contains(target.scheme)) {
+            throw const ApiException(
+              message: 'Liên kết tài liệu không hợp lệ.',
+            );
+          }
+          // A separate client prevents sending the account token to external storage.
+          final external = Dio(
+            BaseOptions(
+              connectTimeout: ApiConfig.connectTimeout,
+              receiveTimeout: ApiConfig.receiveTimeout,
+            ),
+          );
+          try {
+            return await external.get<List<int>>(
+              target.toString(),
+              options: Options(responseType: ResponseType.bytes),
+            );
+          } finally {
+            external.close();
+          }
+        }
+        if (response.headers
+                .value('content-type')
+                ?.contains('application/json') ==
+            true) {
+          return Response<dynamic>(
+            requestOptions: response.requestOptions,
+            statusCode: response.statusCode,
+            data: jsonDecode(utf8.decode(response.data!)),
+          );
+        }
+        return response;
+      } on DioException catch (e) {
+        if (e.response?.data is List<int>) {
+          try {
+            e.response!.data = jsonDecode(
+              utf8.decode(e.response!.data as List<int>),
+            );
+          } catch (_) {
+            /* Non-JSON HTTP error. */
+          }
+        }
+        rethrow;
+      }
+    });
+    if (result is! List<int> || result.isEmpty) {
+      throw const ApiException(message: 'Không tải được nội dung tài liệu.');
+    }
+    return result;
+  }
 
   /// Gửi file dạng multipart/form-data (vd: đổi ảnh đại diện A10)
   Future<dynamic> upload(

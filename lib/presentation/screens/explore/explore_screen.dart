@@ -3,12 +3,16 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_dimens.dart';
+import '../../../core/config/api_config.dart';
 import '../../../core/constants/app_typography.dart';
+import '../../../core/utils/text_search.dart';
 import '../../../data/models/category.dart';
+import '../../../core/network/paged_result.dart';
 import '../../../data/models/course.dart';
 import '../../../data/repositories/course_repository.dart';
 import '../learning_support/learning_data_scope.dart';
 import '../../widgets/course_card.dart';
+import '../../widgets/instructor_strip.dart';
 import '../../widgets/pagination_bar.dart';
 import '../../widgets/state_views.dart';
 import '../course_detail/course_detail_screen.dart';
@@ -49,6 +53,15 @@ class _ExploreScreenState extends State<ExploreScreen> {
   // Gợi ý từ khóa (B5): q rỗng thì là từ khóa thịnh hành
   List<String> _keywords = [];
 
+  // Danh bạ giảng viên (gom từ B2) để tìm theo tên không cần dấu
+  List<InstructorEntry> _allInstructors = [];
+
+  List<InstructorEntry> get _matchedInstructors => _searchQuery.isEmpty
+      ? const []
+      : _allInstructors
+            .where((i) => TextSearch.contains(i.name, _searchQuery))
+            .toList();
+
   bool get _hasActiveFilter => _filterCriteria.hasFilter;
 
   @override
@@ -56,7 +69,24 @@ class _ExploreScreenState extends State<ExploreScreen> {
     super.initState();
     _loadSuggestions('');
     _loadCategories();
+    _loadInstructors();
     _search();
+  }
+
+  Future<void> _loadInstructors() async {
+    try {
+      final all = <Course>[];
+      var page = 1;
+      while (page <= 5) {
+        final result = await _repo.courses(sort: 'popular', pageSize: 50, page: page);
+        all.addAll(result.items);
+        if (!result.hasMore) break;
+        page++;
+      }
+      if (mounted) setState(() => _allInstructors = InstructorEntry.group(all));
+    } catch (_) {
+      // Không có danh bạ thì chỉ mất dải giảng viên, tìm khóa học vẫn dùng được
+    }
   }
 
   Future<void> _loadCategories() async {
@@ -76,9 +106,13 @@ class _ExploreScreenState extends State<ExploreScreen> {
     super.dispose();
   }
 
-  Future<void> _fetch(int page) async {
+  // Kết quả đã lọc theo từ khóa, giữ lại để chuyển trang không phải tải lại
+  List<Course> _matches = [];
+  String? _matchesKey;
+
+  Future<PagedResult<Course>> _load(int page, int pageSize) {
     final f = _filterCriteria;
-    final result = await _repo.courses(
+    return _repo.courses(
       q: _searchQuery,
       categoryId: _categoryId,
       level: f.level == 'Tất cả' ? null : f.level,
@@ -86,13 +120,76 @@ class _ExploreScreenState extends State<ExploreScreen> {
       minRating: f.minRating > 0 ? f.minRating : null,
       sort: f.sort,
       page: page,
+      pageSize: pageSize,
     );
+  }
+
+  /// Khóa khớp từ khóa ở tên khóa, giảng viên hoặc lĩnh vực (server còn tìm cả
+  /// trong mô tả nên trả nhiều khóa không liên quan). Khớp nguyên từ xếp trước
+  /// khớp đầu từ; trong mỗi nhóm: tên khóa, giảng viên, rồi lĩnh vực. Cùng mức
+  /// thì giữ thứ tự của server.
+  List<Course> _relevant(List<Course> all) {
+    final q = _searchQuery;
+    final scored = <(int, int, Course)>[];
+    for (var i = 0; i < all.length; i++) {
+      final c = all[i];
+      final every = '${c.title} ${c.instructor} ${c.category}';
+      final score = TextSearch.contains(c.title, q, wholeWord: true)
+          ? 0
+          : TextSearch.contains(c.instructor, q, wholeWord: true)
+          ? 1
+          : TextSearch.contains(every, q, wholeWord: true)
+          ? 2
+          : TextSearch.contains(c.title, q)
+          ? 3
+          : TextSearch.contains(c.instructor, q)
+          ? 4
+          : TextSearch.contains(every, q)
+          ? 5
+          : -1;
+      if (score >= 0) scored.add((score, i, c));
+    }
+    scored.sort((a, b) {
+      final byScore = a.$1.compareTo(b.$1);
+      return byScore != 0 ? byScore : a.$2.compareTo(b.$2);
+    });
+    return [for (final e in scored) e.$3];
+  }
+
+  Future<void> _fetch(int page) async {
+    if (_searchQuery.isEmpty) {
+      final result = await _load(page, ApiConfig.defaultPageSize);
+      _courses
+        ..clear()
+        ..addAll(result.items);
+      _page = result.page;
+      _total = result.total;
+      _totalPages = result.totalPages < 1 ? 1 : result.totalPages;
+      return;
+    }
+
+    // Có từ khóa: tải các trang của server (tối đa 5 x 50 khóa), lọc lại rồi
+    // tự chia trang để số lượng và số trang khớp với những gì hiển thị.
+    final f = _filterCriteria;
+    final key =
+        '$_searchQuery|$_categoryId|${f.level}|${f.onlyFree}|${f.minRating}|${f.sort}';
+    if (_matchesKey != key) {
+      final all = <Course>[];
+      for (var p = 1; p <= 5; p++) {
+        final result = await _load(p, 50);
+        all.addAll(result.items);
+        if (!result.hasMore) break;
+      }
+      _matches = _relevant(all);
+      _matchesKey = key;
+    }
+    const size = ApiConfig.defaultPageSize;
+    _total = _matches.length;
+    _totalPages = _total == 0 ? 1 : (_total / size).ceil();
+    _page = page.clamp(1, _totalPages);
     _courses
       ..clear()
-      ..addAll(result.items);
-    _page = result.page;
-    _total = result.total;
-    _totalPages = result.totalPages < 1 ? 1 : result.totalPages;
+      ..addAll(_matches.skip((_page - 1) * size).take(size));
   }
 
   /// Tìm lại từ trang 1 (đổi từ khóa, bộ lọc, sắp xếp, hoặc bấm "Thử lại")
@@ -327,6 +424,23 @@ class _ExploreScreenState extends State<ExploreScreen> {
               ),
             ),
             const SizedBox(height: 12.0),
+
+            // 2b. Giảng viên khớp với từ khóa
+            if (_matchedInstructors.isNotEmpty) ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AppDimens.p16),
+                child: Text(
+                  'Giảng viên',
+                  style: AppTypography.labelSmall.copyWith(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8.0),
+              InstructorStrip(instructors: _matchedInstructors),
+              const SizedBox(height: 8.0),
+            ],
 
             // 3. Số lượng kết quả
             Padding(

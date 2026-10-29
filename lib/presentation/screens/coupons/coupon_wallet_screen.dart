@@ -57,6 +57,7 @@ class _CouponWalletScreenState extends State<CouponWalletScreen> {
       _error = null;
     });
     try {
+      // Nạp ví và mã có thể thu thập cùng lúc để màn hình mở nhanh hơn.
       final results = await Future.wait([
         _repo.wallet('usable'),
         _repo.collectable(),
@@ -78,6 +79,7 @@ class _CouponWalletScreenState extends State<CouponWalletScreen> {
   }
 
   Future<void> _selectTab(String tab) async {
+    // Bỏ qua lần chọn lặp nếu dữ liệu của tab đang chọn đã có sẵn.
     if (tab == _tab &&
         (tab == 'collectable' ? _collectable != null : _walletTab == tab)) {
       return;
@@ -144,6 +146,7 @@ class _CouponWalletScreenState extends State<CouponWalletScreen> {
       _error = null;
     });
     try {
+      // Tab thu thập dùng API riêng; khi làm mới vẫn cập nhật ví ở tab khả dụng.
       final walletTab = _tab == 'collectable' ? 'usable' : _tab;
       final results = await Future.wait([
         _repo.wallet(walletTab),
@@ -166,6 +169,7 @@ class _CouponWalletScreenState extends State<CouponWalletScreen> {
   }
 
   Future<void> _saveCoupon([String? value]) async {
+    // Chuẩn hóa mã nhập tay hoặc mã lấy từ thẻ trước khi gửi lên API.
     final code = (value ?? _codeController.text).trim().toUpperCase();
     if (code.isEmpty) {
       ScaffoldMessenger.of(

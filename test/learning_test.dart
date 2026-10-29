@@ -1,3 +1,4 @@
+import 'package:ecolearning_app/data/repositories/lesson_resources_repository.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -70,6 +71,20 @@ class FakeLearning extends LearningRepository {
 }
 
 const offline = ApiException(message: 'Mất kết nối', code: 'NETWORK');
+
+class EmptyResources extends LessonResourcesRepository {
+  @override
+  Future<List<Map<String, dynamic>>> documents(
+    String course,
+    String lesson,
+  ) async => [];
+  @override
+  Future<List<Map<String, dynamic>>> notes(
+    String course,
+    String lesson,
+  ) async => [];
+}
+
 void main() {
   setUpAll(() => GoogleFonts.config.allowRuntimeFetching = false);
   LearningOverview sequential({bool firstDone = false, String? resume}) =>
@@ -238,23 +253,26 @@ void main() {
       }
     },
   );
-  test('threshold save reads authoritative progress even when response completion lags', () async {
-    final repo = FakeLearning();
-    final c = LearningController(repo, 'course');
-    await c.load();
-    repo.write = (_, position, duration) async =>
-        const ProgressResult(lessonCompleted: false, courseProgress: 25);
-    repo.readOverview = () async {
-      final overview = makeOverview(review: true);
-      overview.chapters.first.lessons.last.isCompleted = true;
-      return overview;
-    };
-    await c.save('b', 80, 100);
-    expect(c.progress, 100);
-    expect(c.current!.isCompleted, isTrue);
-    expect(c.chapters.first.lessons.last.isCompleted, isTrue);
-    c.dispose();
-  });
+  test(
+    'threshold save reads authoritative progress even when response completion lags',
+    () async {
+      final repo = FakeLearning();
+      final c = LearningController(repo, 'course');
+      await c.load();
+      repo.write = (_, position, duration) async =>
+          const ProgressResult(lessonCompleted: false, courseProgress: 25);
+      repo.readOverview = () async {
+        final overview = makeOverview(review: true);
+        overview.chapters.first.lessons.last.isCompleted = true;
+        return overview;
+      };
+      await c.save('b', 80, 100);
+      expect(c.progress, 100);
+      expect(c.current!.isCompleted, isTrue);
+      expect(c.chapters.first.lessons.last.isCompleted, isTrue);
+      c.dispose();
+    },
+  );
   test('server completion refreshes review eligibility', () async {
     final repo = FakeLearning();
     final c = LearningController(repo, 'course');
@@ -351,6 +369,7 @@ void main() {
         home: LearningSpaceScreen(
           course: Course.fromJson({'id': 'course', 'title': 'Course'}),
           repository: repo,
+          resources: EmptyResources(),
         ),
       ),
     );
@@ -363,7 +382,7 @@ void main() {
     expect(find.text('Lesson b'), findsWidgets);
     await tester.tap(find.text('Tài liệu'));
     await tester.pumpAndSettle();
-    expect(find.text('Chưa có tài liệu'), findsOneWidget);
+    expect(find.text('Bài học chưa có tài liệu'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });

@@ -7,12 +7,12 @@ import '../../../core/constants/app_typography.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/storage/token_storage.dart';
 import '../../../core/config/api_config.dart';
-import '../../../core/utils/formatters.dart';
 import '../../../core/utils/json_utils.dart';
 import '../../../data/models/course.dart';
 import '../../../data/models/lesson.dart';
 import '../../../data/repositories/course_repository.dart';
 import '../../widgets/course_favorite_button.dart';
+import '../../widgets/price_display.dart';
 import '../../../data/repositories/order_repository.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/cart_provider.dart';
@@ -928,27 +928,11 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
           : Row(
               children: [
                 // Giá tiền bên trái
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      AppFormatters.formatCurrency(_course.price),
-                      style: AppTypography.headlineMedium.copyWith(
-                        color: AppColors.primary,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 20.0,
-                      ),
-                    ),
-                    if (_course.originalPrice > _course.price)
-                      Text(
-                        AppFormatters.formatCurrency(_course.originalPrice),
-                        style: AppTypography.captionTiny.copyWith(
-                          color: AppColors.textMuted,
-                          decoration: TextDecoration.lineThrough,
-                        ),
-                      ),
-                  ],
+                PriceDisplay(
+                  price: _course.price,
+                  originalPrice: _course.originalPrice,
+                  size: PriceSize.large,
+                  stacked: true,
                 ),
                 const SizedBox(width: AppDimens.p16),
 

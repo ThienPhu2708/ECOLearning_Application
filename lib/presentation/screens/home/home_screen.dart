@@ -7,7 +7,6 @@ import '../../widgets/course_favorite_button.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_dimens.dart';
 import '../../../core/constants/app_typography.dart';
-import '../../../core/utils/formatters.dart';
 import '../../../core/config/api_config.dart';
 import '../../../data/models/category.dart';
 import '../../../core/network/paged_result.dart';
@@ -23,8 +22,16 @@ import '../coupons/coupon_wallet_screen.dart';
 import '../../widgets/state_views.dart';
 import '../../widgets/course_card.dart';
 import '../../widgets/coupon_voucher_card.dart';
+import '../../../data/models/home_feed.dart';
+import '../../../data/repositories/home_repository.dart';
+import '../../widgets/home_feed_sections.dart';
+import '../../widgets/home_hero_carousel.dart';
+import '../../widgets/home_highlights.dart';
+import '../../widgets/instructor_strip.dart';
+import '../../widgets/price_display.dart';
 import '../../widgets/rating_stars.dart';
 import '../course_detail/course_detail_screen.dart';
+import '../learning/learning_space_screen.dart';
 
 /// Tab 1: Màn hình Trang chủ theo QuyChuanThietKe_App.md Mục 4.2 & UC7
 class HomeScreen extends StatefulWidget {
@@ -43,6 +50,7 @@ class HomeScreenState extends State<HomeScreen> {
       LearningDataScope.read(context)?.recommendations ??
       RecommendationRepository();
   final CouponRepository _couponRepo = CouponRepository();
+  final HomeRepository _homeRepo = HomeRepository();
 
   // Danh mục bấm ở "Danh mục phổ biến" mở màn riêng nên khối khám phá bên dưới luôn hiện tất cả
   final String _selectedCategory = 'all';
@@ -53,6 +61,7 @@ class HomeScreenState extends State<HomeScreen> {
   RecommendationResult? _recommend;
   List<Course> _popular = [];
   List<Coupon> _promotions = [];
+  HomeFeed? _feed; // GET /home: các mục cá nhân hóa; lỗi thì chỉ mất các mục này
 
   // Khối "Khám phá khóa học" theo danh mục đang chọn (B2)
   bool _loadingCourses = false;
@@ -64,13 +73,47 @@ class HomeScreenState extends State<HomeScreen> {
     super.initState();
     _load();
     _loadPromotions();
+    _loadFeed();
   }
 
   /// Tải song song: danh mục (B1), gợi ý (C1), khóa học phổ biến (B2 sort=popular), danh sách khóa học (B2)
   /// Làm mới dữ liệu. [silent] = true (kéo xuống để làm mới, quay lại từ màn khác) thì giữ nguyên
   /// nội dung đang hiện, không thay bằng vòng tải toàn trang.
   Future<void> reload() async {
-    await Future.wait([_load(silent: true), _loadPromotions()]);
+    await Future.wait([_load(silent: true), _loadPromotions(), _loadFeed()]);
+  }
+
+  Future<void> _loadFeed() async {
+    try {
+      final feed = await _homeRepo.home();
+      if (!mounted) return;
+      setState(() => _feed = feed);
+    } catch (_) {
+      // Các mục bổ sung của Trang chủ; lỗi API không được chặn trang khóa học.
+    }
+  }
+
+  Future<void> _openContinue(HomeContinueItem item) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => LearningSpaceScreen(course: item.toCourse()),
+      ),
+    );
+    if (mounted) _loadFeed(); // tiến độ vừa đổi
+  }
+
+  /// Mục khóa học của /home theo `key`, hoặc null nếu không có.
+  Widget? _feedRail(String key) {
+    final section = _feed?.section(key);
+    if (section == null || section.courses.isEmpty) return null;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 24.0),
+      child: HomeCourseRail(
+        section: section,
+        onTap: (course) => _navigateToDetail(course, ClickSource.home),
+        onSeeAll: () => widget.onNavigateTab?.call(1),
+      ),
+    );
   }
 
   Future<void> _loadPromotions() async {
@@ -79,7 +122,7 @@ class HomeScreenState extends State<HomeScreen> {
       if (!mounted) return;
       setState(() => _promotions = result.coupons);
     } catch (_) {
-      // Promotions are optional content; do not block the course home screen.
+      // Khuyến mãi là nội dung bổ sung; lỗi API không được chặn trang khóa học.
     }
   }
 
@@ -226,9 +269,18 @@ class HomeScreenState extends State<HomeScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // 1. Khối Hero Banner
-                    _buildHeroBanner(),
+                    // 1. Banner nhiều slide (giống banner trên web)
+                    HomeHeroCarousel(onNavigateTab: widget.onNavigateTab),
                     const SizedBox(height: 24.0),
+
+                    // 1b. TIẾP TỤC HỌC (khóa đang học dở)
+                    if (_feed?.section('continue-learning') case final cont?) ...[
+                      HomeContinueSection(
+                        section: cont,
+                        onOpen: _openContinue,
+                      ),
+                      const SizedBox(height: 24.0),
+                    ],
 
                     if (_promotions.isNotEmpty) ...[
                       _buildPromotionSection(),
@@ -249,11 +301,16 @@ class HomeScreenState extends State<HomeScreen> {
                     _buildCategoriesSection(),
                     const SizedBox(height: 24.0),
 
-                    // 4. KHÓA HỌC PHỔ BIẾN
-                    if (_popular.isNotEmpty) ...[
+                    // 4. BÁN CHẠY TUẦN NÀY (server); chưa có thì dùng danh sách phổ biến
+                    if (_feedRail('best-sellers') case final rail?)
+                      rail
+                    else if (_popular.isNotEmpty) ...[
                       _buildTrendingSection(),
                       const SizedBox(height: 24.0),
                     ],
+
+                    // 4a. VÌ BẠN ĐÃ HỌC ...
+                    ?_feedRail('because-you-learned'),
 
                     // 4b. KHÓA HỌC ĐANG GIẢM GIÁ
                     if (_saleCourses.isNotEmpty) ...[
@@ -261,8 +318,28 @@ class HomeScreenState extends State<HomeScreen> {
                       const SizedBox(height: 24.0),
                     ],
 
+                    // 4c. ĐÁNH GIÁ CAO, MỚI RA MẮT, YÊU THÍCH, ĐÃ XEM GẦN ĐÂY
+                    ?_feedRail('top-rated'),
+                    ?_feedRail('new-releases'),
+                    ?_feedRail('favorites'),
+                    ?_feedRail('recently-viewed'),
+
+                    // 4d. GIẢNG VIÊN NỔI BẬT
+                    if (_instructors.isNotEmpty) ...[
+                      _buildInstructorSection(),
+                      const SizedBox(height: 24.0),
+                    ],
+
                     // 5. KHÁM PHÁ THÊM KHÓA HỌC
                     _buildAllCoursesSection(),
+                    const SizedBox(height: 32.0),
+
+                    // 6. SỐ LIỆU, GIÁ TRỊ CỐT LÕI VÀ QUY TRÌNH (giống trang chủ web)
+                    const HomeWhySection(),
+                    const SizedBox(height: 24.0),
+                    const HomeStatsBand(),
+                    const SizedBox(height: 24.0),
+                    const HomeStepsSection(),
                   ],
                 ),
               ),
@@ -329,104 +406,6 @@ class HomeScreenState extends State<HomeScreen> {
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildHeroBanner() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: AppDimens.p16),
-      padding: const EdgeInsets.all(AppDimens.p20),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Color(0xFF1E1B4B), // Deep Indigo
-            AppColors.primary, // Electric Indigo
-          ],
-        ),
-        borderRadius: BorderRadius.circular(20.0),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.primary.withValues(alpha: 0.25),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Tag viên thuốc nổi bật
-          Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 10.0,
-              vertical: 4.0,
-            ),
-            decoration: BoxDecoration(
-              color: AppColors.primaryLight,
-              borderRadius: BorderRadius.circular(999.0),
-            ),
-            child: Text(
-              '✨ LEARNING, MADE PERSONAL',
-              style: AppTypography.captionTiny.copyWith(
-                color: AppColors.primary,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 0.5,
-              ),
-            ),
-          ),
-          const SizedBox(height: 12.0),
-
-          // Headline
-          Text(
-            'Nâng tầm kỹ năng nghề nghiệp của bạn',
-            style: AppTypography.headlineMedium.copyWith(
-              color: Colors.white,
-              fontWeight: FontWeight.w800,
-              fontSize: 20.0,
-            ),
-          ),
-          const SizedBox(height: 8.0),
-          Text(
-            'Khám phá lộ trình học tập cá nhân hóa chuẩn xác với đề xuất thông minh.',
-            style: AppTypography.bodyMedium.copyWith(
-              color: Colors.white.withValues(alpha: 0.85),
-            ),
-          ),
-          const SizedBox(height: 16.0),
-
-          // Nút Khám phá ngay
-          ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.white,
-              foregroundColor: AppColors.primary,
-              elevation: 0,
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16.0,
-                vertical: 10.0,
-              ),
-              minimumSize: Size.zero,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10.0),
-              ),
-            ),
-            icon: const Icon(Icons.explore_rounded, size: 18),
-            label: Text(
-              'Khám phá ngay →',
-              style: AppTypography.bodyMedium.copyWith(
-                color: AppColors.primary,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            onPressed: () {
-              if (widget.onNavigateTab != null) {
-                widget.onNavigateTab!(1); // Nhảy sang Tab 2: Khám phá
-              }
-            },
-          ),
-        ],
-      ),
     );
   }
 
@@ -594,27 +573,10 @@ class HomeScreenState extends State<HomeScreen> {
                             runSpacing: 12,
                             alignment: WrapAlignment.spaceBetween,
                             children: [
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    AppFormatters.formatCurrency(course.price),
-                                    style: AppTypography.titleMedium.copyWith(
-                                      color: AppColors.primary,
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 18.0,
-                                    ),
-                                  ),
-                                  Text(
-                                    AppFormatters.formatCurrency(
-                                      course.originalPrice,
-                                    ),
-                                    style: AppTypography.captionTiny.copyWith(
-                                      color: AppColors.textMuted,
-                                      decoration: TextDecoration.lineThrough,
-                                    ),
-                                  ),
-                                ],
+                              PriceDisplay(
+                                price: course.price,
+                                originalPrice: course.originalPrice,
+                                stacked: true,
                               ),
                               ElevatedButton(
                                 style: ElevatedButton.styleFrom(
@@ -758,6 +720,40 @@ class HomeScreenState extends State<HomeScreen> {
         )
         .take(10)
         .toList();
+  }
+
+  /// Giảng viên gom từ những danh sách đã tải (API chưa có endpoint giảng viên)
+  List<InstructorEntry> get _instructors {
+    final teachers = _feed?.section('featured-teachers')?.teachers;
+    if (teachers != null && teachers.isNotEmpty) {
+      return [
+        for (final t in teachers) InstructorEntry(t.toCourse(), t.coursesCount),
+      ];
+    }
+    return InstructorEntry.group([
+      ...?_recommend?.items,
+      ..._popular,
+      ..._courses,
+    ]).take(10).toList();
+  }
+
+  Widget _buildInstructorSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: AppDimens.p16),
+          child: Text(
+            'Giảng viên nổi bật',
+            style: AppTypography.titleMedium.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+        const SizedBox(height: 12.0),
+        InstructorStrip(instructors: _instructors),
+      ],
+    );
   }
 
   Widget _buildSaleSection() {

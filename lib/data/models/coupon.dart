@@ -3,6 +3,8 @@ import '../../core/utils/json_utils.dart';
 /// Shared promotion card returned by `/coupons/collectable`, `/coupons/wallet`
 /// and `/coupons/{code}`.
 class Coupon {
+  // Fields are normalized from the shared promotion API so wallet, home, and
+  // checkout can render the same coupon without screen-specific parsing.
   final String code;
   final String title;
   final String discountText;
@@ -45,6 +47,7 @@ class Coupon {
     this.reason,
   });
 
+  // Keep API compatibility for the legacy `name` and `endDate` field names.
   factory Coupon.fromJson(Map<String, dynamic> json) => Coupon(
     code: JsonUtils.asString(json['code']),
     title: JsonUtils.asString(json['title'] ?? json['name']),
@@ -78,6 +81,7 @@ class CouponWallet {
 
   const CouponWallet({required this.counts, required this.items});
 
+  // The API returns per-tab totals alongside the coupons currently requested.
   factory CouponWallet.fromJson(Map<String, dynamic> json) {
     final rawCounts = JsonUtils.asMap(json['counts']);
     return CouponWallet(

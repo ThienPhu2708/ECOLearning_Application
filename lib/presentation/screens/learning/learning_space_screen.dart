@@ -18,17 +18,21 @@ import '../../widgets/state_views.dart';
 import '../quiz/quiz_intro_screen.dart';
 import 'learning_controller.dart';
 import 'lesson_notes_tab.dart';
+import 'lesson_documents_tab.dart';
+import '../../../data/repositories/lesson_resources_repository.dart';
 import '../../session/current_user.dart';
 
 class LearningSpaceScreen extends StatefulWidget {
   final Course course;
   final LearningRepository? repository;
+  final LessonResourcesRepository? resources;
   final ReviewRepository? reviews;
   final VideoPlayerController Function(Uri)? videoControllerFactory;
   const LearningSpaceScreen({
     super.key,
     required this.course,
     this.repository,
+    this.resources,
     this.reviews,
     this.videoControllerFactory,
   });
@@ -59,7 +63,7 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _tabs = TabController(length: 3, vsync: this);
+    _tabs = TabController(length: 3, vsync: this)..addListener(_update);
     _learning = LearningController(
       widget.repository ??
           LearningDataScope.read(context)?.learning ??
@@ -379,12 +383,16 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
               controller: _tabs,
               children: [
                 _buildLessonAccordionTab(),
-                const EmptyView(
-                  icon: Icons.folder_open_outlined,
-                  title: 'Chưa có tài liệu',
-                  message: 'Tài liệu bài học sẽ hiển thị khi được cung cấp.',
+                LessonDocumentsTab(
+                  repository: widget.resources,
+                  key: ValueKey('documents/${_course.id}/${_currentLesson.id}'),
+                  active: _tabs.index == 1,
+                  courseId: _course.id,
+                  lessonId: _currentLesson.id,
                 ),
                 LessonNotesTab(
+                  repository: widget.resources,
+                  active: _tabs.index == 2,
                   key: ValueKey(
                     '${(currentUser(context)?.id ?? 'guest')}/${_course.id}/${_currentLesson.id}',
                   ),
