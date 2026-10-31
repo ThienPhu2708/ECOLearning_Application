@@ -77,6 +77,7 @@ void main() {
       expect(transport.calls.last.queryParameters, {
         'status': 'completed',
         'page': 2,
+        'separateCertificates': true,
       });
       expect(
         transport.calls.last.headers['Authorization'],

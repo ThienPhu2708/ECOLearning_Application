@@ -22,7 +22,7 @@ class Owned extends LearningRepository {
   Future<PagedResult<Course>> myCourses({
     String status = MyCourseStatus.inProgress,
     int page = 1,
-  }) async => status == MyCourseStatus.completed
+  }) async => status == MyCourseStatus.certified
       ? PagedResult(
           items: [course],
           page: 1,
@@ -97,7 +97,8 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Đã học đủ bài (1)'));
+    await tester.ensureVisible(find.text('Đã nhận chứng chỉ (1)'));
+    await tester.tap(find.text('Đã nhận chứng chỉ (1)'));
     await tester.pumpAndSettle();
   }
 
@@ -154,7 +155,13 @@ void main() {
     expect(find.byType(RatingDialog), findsNothing);
     expect(find.text('Hữu ích'), findsOneWidget);
     expect(find.text('4/5 ★'), findsOneWidget);
-    expect(find.descendant(of: find.byType(AlertDialog), matching: find.byType(TextField)), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(TextField),
+      ),
+      findsNothing,
+    );
     await tester.tap(find.text('Sửa đánh giá'));
     await tester.pumpAndSettle();
     expect(find.byType(RatingDialog), findsOneWidget);

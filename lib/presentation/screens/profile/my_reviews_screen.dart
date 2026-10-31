@@ -51,6 +51,7 @@ class _MyReviewsScreenState extends State<MyReviewsScreen> {
       for (final status in [
         MyCourseStatus.inProgress,
         MyCourseStatus.completed,
+        MyCourseStatus.certified,
       ]) {
         var page = 1;
         while (true) {

@@ -6,6 +6,7 @@ import '../../../data/repositories/quiz_repository.dart';
 import '../../widgets/state_views.dart';
 import 'quiz_controller.dart';
 import 'quiz_result_screen.dart';
+import 'quiz_report_sheet.dart';
 
 class QuizTakeScreen extends StatefulWidget {
   final String courseId;
@@ -37,6 +38,7 @@ class _QuizTakeScreenState extends State<QuizTakeScreen>
   bool _showNumbers = true;
   bool _resultOpened = false;
   int _active = 0;
+  final _reported = <int>{};
   @override
   void initState() {
     super.initState();
@@ -46,6 +48,7 @@ class _QuizTakeScreenState extends State<QuizTakeScreen>
       _keys.addAll(List.generate(_quiz!.questions.length, (_) => GlobalKey()));
       _quiz!.addListener(_update);
       _quiz!.startTimer();
+      if (_quiz!.supportsReview) _quiz!.resume();
     } catch (e) {
       _error = e;
     }
@@ -80,8 +83,9 @@ class _QuizTakeScreenState extends State<QuizTakeScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _quiz?.tick();
+      _quiz?.resume();
     } else {
+      _quiz?.depart();
       unawaited(_quiz?.saveDraft());
     }
   }
@@ -91,7 +95,7 @@ class _QuizTakeScreenState extends State<QuizTakeScreen>
     if (_leaving || (q?.submitting ?? false)) return;
     _leaving = true;
     try {
-      if (q != null) {
+      if (q != null && !q.sessionLost) {
         final leave = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
@@ -112,6 +116,8 @@ class _QuizTakeScreenState extends State<QuizTakeScreen>
           ),
         );
         if (leave != true) return;
+        q.depart();
+        await q.flushVisibility();
         await q.saveDraft();
         if (q.draftError != null) {
           if (mounted) showErrorSnackBar(context, q.draftError!);
@@ -331,6 +337,49 @@ class _QuizTakeScreenState extends State<QuizTakeScreen>
                   ],
                 ),
               ),
+              if (q.sessionLost)
+                MaterialBanner(
+                  content: const Text(
+                    'Lượt thi đã được chuyển sang phiên khác. Phiên này đã ngừng nhận đáp án.',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: _leave,
+                      child: const Text('Quay lại'),
+                    ),
+                  ],
+                ),
+              if (q.supportsReview)
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  child: Text(
+                    q.departures >= 3
+                        ? 'Đã ghi nhận ${q.departures} lần rời ứng dụng. Kết quả sẽ chờ giáo viên xem xét.'
+                        : 'Rời ứng dụng từ 3 lần: kết quả chờ giáo viên xem xét. Đồng hồ vẫn chạy.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      height: 1.5,
+                      color: q.departures >= 3
+                          ? AppColors.warning
+                          : AppColors.textSecondary,
+                    ),
+                  ),
+                ),
+              if (q.visibilityError != null)
+                MaterialBanner(
+                  content: const Text(
+                    'Chưa gửi được nhật ký rời ứng dụng. Cần gửi lại trước khi nộp bài.',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: q.flushVisibility,
+                      child: const Text('Gửi lại'),
+                    ),
+                  ],
+                ),
               if (q.draftError != null)
                 MaterialBanner(
                   content: const Text(
@@ -378,6 +427,55 @@ class _QuizTakeScreenState extends State<QuizTakeScreen>
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
+                              if (q.supportsReview && q.questions[i].id > 0)
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: TextButton.icon(
+                                    onPressed:
+                                        q.submitting ||
+                                            q.expired ||
+                                            _reported.contains(
+                                              q.questions[i].id,
+                                            )
+                                        ? null
+                                        : () async {
+                                            final sent = await showQuizReport(
+                                              context,
+                                              _repo,
+                                              q.attemptId,
+                                              q.questions[i].id,
+                                              q.questions[i].text,
+                                            );
+                                            if (sent &&
+                                                mounted &&
+                                                context.mounted) {
+                                              setState(
+                                                () => _reported.add(
+                                                  q.questions[i].id,
+                                                ),
+                                              );
+                                              ScaffoldMessenger.of(
+                                                context,
+                                              ).showSnackBar(
+                                                const SnackBar(
+                                                  content: Text(
+                                                    'Đã gửi báo lỗi đến giáo viên.',
+                                                  ),
+                                                ),
+                                              );
+                                            }
+                                          },
+                                    icon: const Icon(
+                                      Icons.flag_outlined,
+                                      size: 16,
+                                    ),
+                                    label: Text(
+                                      _reported.contains(q.questions[i].id)
+                                          ? 'Đã báo lỗi'
+                                          : 'Báo lỗi câu hỏi',
+                                    ),
+                                  ),
+                                ),
                               const SizedBox(height: 12),
                               Text(
                                 q.questions[i].text,
@@ -397,7 +495,10 @@ class _QuizTakeScreenState extends State<QuizTakeScreen>
                                   padding: const EdgeInsets.only(bottom: 10),
                                   child: Semantics(
                                     checked: q.answers[i] == option,
-                                    enabled: !q.expired && !q.submitting,
+                                    enabled:
+                                        !q.sessionLost &&
+                                        !q.expired &&
+                                        !q.submitting,
                                     child: Material(
                                       color: q.answers[i] == option
                                           ? AppColors.primaryLight
@@ -412,7 +513,10 @@ class _QuizTakeScreenState extends State<QuizTakeScreen>
                                       ),
                                       child: InkWell(
                                         borderRadius: BorderRadius.circular(12),
-                                        onTap: q.expired || q.submitting
+                                        onTap:
+                                            q.sessionLost ||
+                                                q.expired ||
+                                                q.submitting
                                             ? null
                                             : () => q.choose(i, option),
                                         child: Padding(

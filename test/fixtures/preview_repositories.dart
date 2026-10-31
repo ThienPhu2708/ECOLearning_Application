@@ -71,7 +71,17 @@ class PreviewLearningRepository extends LearningRepository {
     await quiz?.ready();
     await _delay();
     return _page(
-      (status == MyCourseStatus.completed ? completed : ongoing)
+      (status == MyCourseStatus.inProgress ? ongoing : completed)
+          .where((course) {
+            final issued =
+                quiz?._certificates.containsKey(course.id) ??
+                course.hasCertificate;
+            return status == MyCourseStatus.certified
+                ? issued
+                : status == MyCourseStatus.completed
+                ? !issued
+                : true;
+          })
           .map(
             (course) => course.copyWith(
               hasCertificate: quiz == null

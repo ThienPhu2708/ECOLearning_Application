@@ -61,9 +61,9 @@ class MyCoursesScreenState extends State<MyCoursesScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _tabs = TabController(
-      length: 2,
+      length: 3,
       vsync: this,
-      initialIndex: widget.initialTabIndex.clamp(0, 1),
+      initialIndex: widget.initialTabIndex.clamp(0, 2),
     );
     _controller = MyCoursesController(
       widget.repository ??
@@ -73,7 +73,7 @@ class MyCoursesScreenState extends State<MyCoursesScreen>
     _controller.load();
   }
 
-  void showTab(int index) => _tabs.animateTo(index.clamp(0, 1));
+  void showTab(int index) => _tabs.animateTo(index.clamp(0, 2));
 
   @override
   void didUpdateWidget(covariant MyCoursesScreen oldWidget) {
@@ -188,6 +188,8 @@ class MyCoursesScreenState extends State<MyCoursesScreen>
                 ),
                 child: TabBar(
                   controller: _tabs,
+                  isScrollable: true,
+                  tabAlignment: TabAlignment.start,
                   labelStyle: AppTypography.labelSmall.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
@@ -208,10 +210,17 @@ class MyCoursesScreenState extends State<MyCoursesScreen>
                   ),
                   tabs: [
                     Tab(text: _tabLabel('Đang học', _controller.ongoing.total)),
+
                     Tab(
                       text: _tabLabel(
                         'Đã học đủ bài',
                         _controller.completed.total,
+                      ),
+                    ),
+                    Tab(
+                      text: _tabLabel(
+                        'Đã nhận chứng chỉ',
+                        _controller.certified.total,
                       ),
                     ),
                   ],
@@ -223,6 +232,7 @@ class MyCoursesScreenState extends State<MyCoursesScreen>
                   children: [
                     _buildList(MyCourseStatus.inProgress),
                     _buildList(MyCourseStatus.completed),
+                    _buildList(MyCourseStatus.certified),
                   ],
                 ),
               ),
@@ -235,7 +245,7 @@ class MyCoursesScreenState extends State<MyCoursesScreen>
 
   Widget _buildList(String status) {
     final state = _controller.stateFor(status);
-    final completed = status == MyCourseStatus.completed;
+    final completed = status != MyCourseStatus.inProgress;
     if (state.loading && state.courses.isEmpty) {
       return const LoadingView(message: 'Đang tải khóa học…');
     }
@@ -263,13 +273,17 @@ class MyCoursesScreenState extends State<MyCoursesScreen>
                         : Icons.menu_book_rounded,
                     title: _controller.query.isNotEmpty
                         ? 'Không tìm thấy khóa học'
+                        : status == MyCourseStatus.certified
+                        ? 'Bạn chưa nhận chứng chỉ nào'
                         : completed
                         ? 'Chưa có khóa học hoàn tất'
                         : 'Chưa có khóa học đang học',
                     message: _controller.query.isNotEmpty
                         ? 'Thử tên khóa học hoặc giảng viên khác nha.'
+                        : status == MyCourseStatus.certified
+                        ? 'Các khóa có chứng chỉ hợp lệ sẽ xuất hiện tại đây.'
                         : completed
-                        ? 'Các khóa học đủ 100% bài học sẽ xuất hiện tại đây.'
+                        ? 'Các khóa học đủ 100% bài học và chưa nhận chứng chỉ sẽ xuất hiện tại đây.'
                         : 'Khám phá khóa học mới hoặc xem lại các khóa đã học đủ bài.',
                     actionText: completed
                         ? 'Xem khóa đang học'
@@ -626,6 +640,10 @@ class _LearningCourseCard extends StatelessWidget {
                         child: Text(
                           course.hasCertificate
                               ? 'Đã cấp chứng chỉ'
+                              : course.pendingQuizReview
+                              ? 'Chờ giáo viên xem xét kết quả quiz'
+                              : course.quizRetakeRequired
+                              ? 'Giáo viên yêu cầu làm lại quiz'
                               : 'Hoàn thành quiz để nhận chứng chỉ.',
                           style: AppTypography.labelSmall.copyWith(
                             fontWeight: FontWeight.w400,
@@ -733,7 +751,11 @@ class _LearningCourseCard extends StatelessWidget {
                 else ...[
                   AppButton(
                     text: completed
-                        ? 'Làm quiz cuối khóa'
+                        ? (course.pendingQuizReview
+                              ? 'Xem trạng thái quiz'
+                              : course.quizRetakeRequired
+                              ? 'Làm lại quiz'
+                              : 'Làm quiz cuối khóa')
                         : progress > 0
                         ? 'Tiếp tục học'
                         : 'Bắt đầu học',
