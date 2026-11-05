@@ -67,6 +67,20 @@ class ApiClient {
   Future<dynamic> delete(String path, {Object? data}) =>
       _send(() => _dio.delete(path, data: data));
 
+  /// Private chat media stays on the API origin; never forward the bearer token to redirects.
+  Future<List<int>> chatImage(int messageId) async {
+    final bytes = await _send(
+      () => _dio.get<List<int>>(
+        '/chat/messages/$messageId/image',
+        options: Options(
+          responseType: ResponseType.bytes,
+          followRedirects: false,
+        ),
+      ),
+    );
+    return List<int>.from(bytes as List);
+  }
+
   Future<List<int>> downloadDocument(String id) async {
     final result = await _send(() async {
       try {
