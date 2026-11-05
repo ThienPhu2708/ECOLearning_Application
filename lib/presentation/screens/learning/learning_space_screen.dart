@@ -1,4 +1,5 @@
 import 'review_flow.dart';
+import '../messages/chat_entry.dart';
 import '../../../data/repositories/course_repository.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -371,15 +372,68 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
               ],
             ),
           _buildLessonHeaderBar(),
-          if (_learning.overview?.quizAvailable ?? false)
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: _openQuiz,
-                icon: const Icon(Icons.quiz_outlined, size: 18),
-                label: const Text('Quiz cuối khóa'),
-              ),
+          Container(
+            color: AppColors.surface,
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final hasQuiz = _learning.overview?.quizAvailable ?? false;
+                final twoColumns =
+                    hasQuiz &&
+                    constraints.maxWidth >= 300 &&
+                    MediaQuery.textScalerOf(context).scale(13) <= 17;
+                final width = twoColumns
+                    ? (constraints.maxWidth - 10) / 2
+                    : constraints.maxWidth;
+                final style = TextButton.styleFrom(
+                  minimumSize: const Size(0, 48),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 12,
+                  ),
+                  foregroundColor: AppColors.primary,
+                  side: BorderSide(
+                    color: AppColors.primary.withValues(alpha: 0.2),
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  textStyle: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                );
+                return TextButtonTheme(
+                  data: TextButtonThemeData(style: style),
+                  child: Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      SizedBox(
+                        width: width,
+                        child: ChatEntry(
+                          courseId: _course.id,
+                          beforeOpen: () async {
+                            await _video?.pause();
+                            await _saveProgress();
+                          },
+                        ),
+                      ),
+                      if (hasQuiz)
+                        SizedBox(
+                          width: width,
+                          child: TextButton.icon(
+                            onPressed: _openQuiz,
+                            icon: const Icon(Icons.quiz_outlined, size: 18),
+                            label: const Text('Quiz cuối khóa'),
+                          ),
+                        ),
+                    ],
+                  ),
+                );
+              },
             ),
+          ),
           Container(
             color: AppColors.surface,
             child: TabBar(

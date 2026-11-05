@@ -30,14 +30,20 @@ class MyCoursesController extends ChangeNotifier {
 
   final ongoing = MyCoursesPageState();
   final completed = MyCoursesPageState();
+  final certified = MyCoursesPageState();
   bool _disposed = false;
 
   MyCoursesPageState stateFor(String status) =>
-      status == MyCourseStatus.completed ? completed : ongoing;
+      status == MyCourseStatus.certified
+      ? certified
+      : status == MyCourseStatus.completed
+      ? completed
+      : ongoing;
 
   Future<void> load() => Future.wait([
     refresh(MyCourseStatus.inProgress),
     refresh(MyCourseStatus.completed),
+    refresh(MyCourseStatus.certified),
   ]);
 
   Future<void> refresh(String status, {int page = 1}) async {

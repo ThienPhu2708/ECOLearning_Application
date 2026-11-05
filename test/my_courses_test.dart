@@ -225,7 +225,7 @@ void main() {
     expect(find.text('Đã cấp chứng chỉ'), findsNothing);
   });
 
-  testWidgets('Returning from learning refreshes both course tabs', (
+  testWidgets('Returning from learning refreshes all three course tabs', (
     tester,
   ) async {
     final repo = FakeLearning((_, _) async => page([course('api')]));
@@ -246,7 +246,7 @@ void main() {
     await tester.tap(find.text('Tiếp tục học').first);
     await tester.pumpAndSettle();
     expect(opens, 1);
-    expect(repo.calls.length, 4);
+    expect(repo.calls.length, 6);
   });
 
   testWidgets('Cards fit a narrow phone with larger text', (tester) async {

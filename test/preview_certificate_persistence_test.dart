@@ -25,7 +25,7 @@ void main() {
       final learning = PreviewLearningRepository(quiz: restarted);
       expect(
         (await learning.myCourses(
-          status: 'completed',
+          status: 'certified',
         )).items.single.hasCertificate,
         true,
       );

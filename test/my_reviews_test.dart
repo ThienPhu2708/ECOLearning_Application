@@ -15,7 +15,7 @@ class Owned extends LearningRepository {
     String status = MyCourseStatus.inProgress,
     int page = 1,
   }) async {
-    if (status == MyCourseStatus.inProgress) return const PagedResult.empty();
+    if (status != MyCourseStatus.completed) return const PagedResult.empty();
     calls.add(page);
     return PagedResult(
       items: [
@@ -48,11 +48,11 @@ void main() {
     'review tabs read all owned pages and view an existing review without reopening the form',
     (tester) async {
       tester.view.physicalSize = const Size(360, 800);
-    tester.view.devicePixelRatio = 1;
-    tester.platformDispatcher.textScaleFactorTestValue = 1.2;
-    addTearDown(tester.view.reset);
-    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-    GoogleFonts.config.allowRuntimeFetching = false;
+      tester.view.devicePixelRatio = 1;
+      tester.platformDispatcher.textScaleFactorTestValue = 1.2;
+      addTearDown(tester.view.reset);
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      GoogleFonts.config.allowRuntimeFetching = false;
       final owned = Owned();
       await tester.pumpWidget(
         MaterialApp(

@@ -45,6 +45,8 @@ class Course {
   // "Khóa học của tôi" (G1)
   final String? lastLessonId;
   final bool hasCertificate;
+  final bool pendingQuizReview;
+  final bool quizRetakeRequired;
 
   // Thông tin đánh giá của học viên (nếu có)
   double? myReviewRating;
@@ -83,6 +85,8 @@ class Course {
     this.chapters = const [],
     this.lastLessonId,
     this.hasCertificate = false,
+    this.pendingQuizReview = false,
+    this.quizRetakeRequired = false,
     this.myReviewRating,
     this.myReviewComment,
   });
@@ -144,6 +148,8 @@ class Course {
       ).map(Chapter.fromJson).toList(),
       lastLessonId: JsonUtils.asStringOrNull(json['lastLessonId']),
       hasCertificate: JsonUtils.asBool(json['hasCertificate']),
+      pendingQuizReview: JsonUtils.asBool(json['pendingQuizReview']),
+      quizRetakeRequired: JsonUtils.asBool(json['quizRetakeRequired']),
       myReviewRating: myReview.isEmpty
           ? null
           : JsonUtils.asDouble(myReview['rating']),
@@ -186,6 +192,8 @@ class Course {
     List<Chapter>? chapters,
     String? lastLessonId,
     bool? hasCertificate,
+    bool? pendingQuizReview,
+    bool? quizRetakeRequired,
     double? myReviewRating,
     String? myReviewComment,
   }) {
@@ -199,7 +207,8 @@ class Course {
       instructorAvatar: instructorAvatar ?? this.instructorAvatar,
       instructorId: instructorId ?? this.instructorId,
       instructorBio: instructorBio ?? this.instructorBio,
-      instructorCertificates: instructorCertificates ?? this.instructorCertificates,
+      instructorCertificates:
+          instructorCertificates ?? this.instructorCertificates,
       studentsCount: studentsCount ?? this.studentsCount,
       rating: rating ?? this.rating,
       reviewCount: reviewCount ?? this.reviewCount,
@@ -222,6 +231,8 @@ class Course {
       chapters: chapters ?? this.chapters,
       lastLessonId: lastLessonId ?? this.lastLessonId,
       hasCertificate: hasCertificate ?? this.hasCertificate,
+      pendingQuizReview: pendingQuizReview ?? this.pendingQuizReview,
+      quizRetakeRequired: quizRetakeRequired ?? this.quizRetakeRequired,
       myReviewRating: myReviewRating ?? this.myReviewRating,
       myReviewComment: myReviewComment ?? this.myReviewComment,
     );

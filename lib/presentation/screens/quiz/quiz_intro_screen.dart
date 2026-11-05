@@ -1,3 +1,4 @@
+import '../../../core/network/api_exception.dart';
 import 'package:flutter/material.dart';
 import '../learning_support/learning_data_scope.dart';
 import '../../../core/constants/app_colors.dart';
@@ -8,6 +9,9 @@ import '../../widgets/app_button.dart';
 import '../../widgets/state_views.dart';
 import 'quiz_take_screen.dart';
 import 'quiz_result_screen.dart';
+import 'quiz_support_screen.dart';
+import 'quiz_history_screen.dart';
+import 'quiz_skills_card.dart';
 
 class QuizIntroScreen extends StatefulWidget {
   final String courseId;
@@ -64,7 +68,7 @@ class _QuizIntroScreenState extends State<QuizIntroScreen> {
             ),
             title: const Text('Bắt đầu làm quiz?'),
             content: Text(
-              'Bạn có ${JsonUtils.asInt(_info?['minutes'])} phút để hoàn thành bài. Đồng hồ bắt đầu ngay và lượt làm này sẽ được tính vào giới hạn.',
+              'Bạn có ${JsonUtils.asInt(_info?['minutes'])} phút để hoàn thành bài. Đồng hồ bắt đầu ngay và lượt làm này sẽ được tính vào giới hạn. Rời ứng dụng từ 3 lần thì kết quả chờ giáo viên xem xét.',
             ),
             actions: [
               TextButton(
@@ -82,7 +86,44 @@ class _QuizIntroScreenState extends State<QuizIntroScreen> {
       }
       if (!mounted) return;
       setState(() => _starting = true);
-      final attempt = await _repo.start(widget.courseId);
+      Map<String, dynamic> attempt;
+      try {
+        attempt = active && JsonUtils.asBool(_info?['supportsQuizReview'])
+            ? await _repo.resume(JsonUtils.asInt(_info?['activeAttemptId']))
+            : await _repo.start(widget.courseId);
+      } on ApiException catch (e) {
+        if (e.code == 'QUIZ_FINISHED') {
+          await _load();
+          return;
+        }
+        if (e.code != 'QUIZ_SESSION_ACTIVE' || !mounted) rethrow;
+        final transfer = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Chuyển lượt thi sang đây?'),
+            content: const Text(
+              'Bài đang mở ở phiên khác. Chuyển sang đây sẽ ngừng quyền sửa ở phiên cũ; thời gian và đáp án đã lưu giữ nguyên.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Hủy'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Chuyển sang đây'),
+              ),
+            ],
+          ),
+        );
+        if (transfer != true || !mounted) return;
+        attempt = active && JsonUtils.asBool(_info?['supportsQuizReview'])
+            ? await _repo.resume(
+                JsonUtils.asInt(_info?['activeAttemptId']),
+                takeover: true,
+              )
+            : await _repo.takeOver(widget.courseId);
+      }
       if (!mounted) return;
       await Navigator.push(
         context,
@@ -92,7 +133,7 @@ class _QuizIntroScreenState extends State<QuizIntroScreen> {
             attempt: attempt,
             repository: _repo,
             title: JsonUtils.asString(
-              _info?['title'],
+              attempt['title'] ?? _info?['title'],
               fallback: 'Quiz cuối khóa',
             ),
           ),
@@ -189,6 +230,9 @@ class _QuizIntroScreenState extends State<QuizIntroScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
+                  QuizSkillsCard(
+                    skills: JsonUtils.asMapList(data['skillMatrix']),
+                  ),
                   if (!JsonUtils.asBool(data['canStart']) && !active)
                     Container(
                       padding: const EdgeInsets.all(16),
@@ -216,19 +260,86 @@ class _QuizIntroScreenState extends State<QuizIntroScreen> {
                       ),
                       title: const Text('Kết quả gần nhất'),
                       subtitle: Text(
-                        '${JsonUtils.asDouble(last['score']).toStringAsFixed(1)}/10 điểm',
+                        JsonUtils.asBool(last['pendingReview'])
+                            ? 'Chờ giáo viên xem xét'
+                            : JsonUtils.asBool(last['isVoided'])
+                            ? 'Kết quả hết hiệu lực'
+                            : '${JsonUtils.asDouble(last['score']).toStringAsFixed(1)}/10 điểm',
                       ),
                       trailing: const Icon(Icons.chevron_right),
-                      onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute<void>(
-                          builder: (_) => QuizResultScreen(
-                            courseId: widget.courseId,
-                            result: last,
-                            repository: _repo,
+                      onTap: () async {
+                        try {
+                          final result =
+                              JsonUtils.asBool(data['supportsQuizReview'])
+                              ? await _repo.result(
+                                  JsonUtils.asInt(last['attemptId']),
+                                )
+                              : last;
+                          if (!mounted || !context.mounted) return;
+                          await Navigator.push(
+                            context,
+                            MaterialPageRoute<void>(
+                              builder: (_) => QuizResultScreen(
+                                courseId: widget.courseId,
+                                result: result,
+                                repository: _repo,
+                              ),
+                            ),
+                          );
+                          if (mounted) await _load();
+                        } catch (error) {
+                          if (mounted && context.mounted) {
+                            showErrorSnackBar(context, error);
+                          }
+                        }
+                      },
+                    ),
+                  ],
+                  if (JsonUtils.asBool(data['supportsQuizReview'])) ...[
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                            builder: (_) => QuizSupportScreen(
+                              courseId: widget.courseId,
+                              repository: _repo,
+                              initialTab:
+                                  JsonUtils.asBool(data['retakeRequired'])
+                                  ? 0
+                                  : 2,
+                            ),
                           ),
-                        ),
+                        );
+                        if (mounted) await _load();
+                      },
+                      icon: Icon(
+                        JsonUtils.asBool(data['retakeRequired'])
+                            ? Icons.mark_chat_unread_outlined
+                            : Icons.forum_outlined,
                       ),
+                      label: Text(
+                        JsonUtils.asBool(data['retakeRequired'])
+                            ? 'Yêu cầu làm lại từ giáo viên'
+                            : 'Báo lỗi, phúc khảo & phản hồi',
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                            builder: (_) => QuizHistoryScreen(
+                              courseId: widget.courseId,
+                              repository: _repo,
+                            ),
+                          ),
+                        );
+                        if (mounted) await _load();
+                      },
+                      icon: const Icon(Icons.history),
+                      label: const Text('Lịch sử làm quiz'),
                     ),
                   ],
                   const SizedBox(height: 20),

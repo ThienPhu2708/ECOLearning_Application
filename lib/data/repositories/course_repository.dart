@@ -14,6 +14,7 @@ class ClickSource {
   static const category = 'category';
   static const similar = 'similar';
   static const chatbot = 'chatbot';
+  static const promo = 'promo';
 }
 
 /// Nhóm B: Danh mục, khóa học, tìm kiếm (Task_Tuan10.docx mục 6.2). Người dùng chính: Thư.
