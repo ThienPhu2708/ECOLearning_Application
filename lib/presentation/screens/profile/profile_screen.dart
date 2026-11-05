@@ -1,5 +1,4 @@
 import 'my_reviews_screen.dart';
-import '../messages/chat_entry.dart';
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_dimens.dart';
@@ -356,8 +355,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                       ),
                     ),
-                    const Divider(),
-                    const ChatEntry(),
                     const Divider(),
                     _buildSettingsTile(
                       Icons.workspace_premium_outlined,

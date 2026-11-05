@@ -3,7 +3,6 @@
 ## Mở trên app
 
 - Vào bài học → **Hỏi giáo viên**. Video tạm dừng khi mở hội thoại.
-- Hồ sơ → **Tin nhắn của tôi** để xem các hội thoại, tìm theo người nhắn/khóa học và lọc chưa đọc.
 - Hỗ trợ chữ, biểu cảm, ảnh JPG/PNG, xem ảnh lớn, thu hồi trong 5 phút và báo cáo hội thoại.
 - Khóa học/hội thoại bị khóa sẽ chỉ cho xem; máy chủ vẫn quyết định quyền gửi và thu hồi.
 
