@@ -6,6 +6,7 @@ import '../../../data/repositories/favorite_repository.dart';
 import '../../../data/repositories/order_repository.dart';
 import '../../../data/repositories/course_repository.dart';
 import '../../../data/repositories/review_repository.dart';
+import '../../../data/repositories/lesson_discussion_repository.dart';
 
 /// Repository injection for widget tests; production uses API repositories.
 class LearningDataScope extends InheritedWidget {
@@ -16,6 +17,7 @@ class LearningDataScope extends InheritedWidget {
   final CourseRepository? courses;
   final RecommendationRepository? recommendations;
   final ReviewRepository? reviews;
+  final LessonDiscussionRepository? discussions;
   const LearningDataScope({
     super.key,
     required this.learning,
@@ -25,6 +27,7 @@ class LearningDataScope extends InheritedWidget {
     this.courses,
     this.recommendations,
     this.reviews,
+    this.discussions,
     required super.child,
   });
   static LearningDataScope? read(BuildContext context) =>
@@ -37,5 +40,6 @@ class LearningDataScope extends InheritedWidget {
       orders != oldWidget.orders ||
       courses != oldWidget.courses ||
       recommendations != oldWidget.recommendations ||
-      reviews != oldWidget.reviews;
+      reviews != oldWidget.reviews ||
+      discussions != oldWidget.discussions;
 }

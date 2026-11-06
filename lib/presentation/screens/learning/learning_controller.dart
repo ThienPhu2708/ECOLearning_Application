@@ -6,9 +6,10 @@ import '../../../data/repositories/learning_repository.dart';
 
 /// Keeps progress tied to the lesson that produced it, even during navigation.
 class LearningController extends ChangeNotifier {
-  LearningController(this.repository, this.courseId);
+  LearningController(this.repository, this.courseId, {this.initialLessonId});
   final LearningRepository repository;
   final String courseId;
+  final String? initialLessonId;
   LearningOverview? overview;
   Lesson? current;
   Object? error;
@@ -26,6 +27,9 @@ class LearningController extends ChangeNotifier {
   bool isUnlocked(String lessonId) {
     final lessons = chapters.expand((c) => c.lessons).toList();
     final index = lessons.indexWhere((l) => l.id == lessonId);
+    if (index < 0) return false;
+    final serverValue = lessons[index].isUnlocked;
+    if (serverValue != null) return serverValue;
     return index >= 0 &&
         (index == 0 ||
             lessons[index].isCompleted ||
@@ -54,7 +58,9 @@ class LearningController extends ChangeNotifier {
       current = null;
       if (lessons.isNotEmpty) {
         final chosen = lessons.firstWhere(
-          (l) => l.id == data.currentLessonId && isUnlocked(l.id),
+          (l) =>
+              l.id == (initialLessonId ?? data.currentLessonId) &&
+              isUnlocked(l.id),
           orElse: () => lessons.firstWhere(
             (l) => !l.isCompleted && isUnlocked(l.id),
             orElse: () => lessons.first,
@@ -62,6 +68,12 @@ class LearningController extends ChangeNotifier {
         );
         final selected = await repository.lesson(courseId, chosen.id);
         if (_disposed || request != _request) return;
+        if (selected.isUnlocked == false) {
+          throw const ApiException(
+            code: 'LESSON_LOCKED',
+            message: 'Bài học này chưa được mở khóa.',
+          );
+        }
         current = selected;
       }
     } catch (e) {
@@ -92,6 +104,13 @@ class LearningController extends ChangeNotifier {
     try {
       final data = await repository.lesson(courseId, lesson.id);
       if (_disposed || request != _request) return false;
+      if (data.isUnlocked == false) {
+        error = const ApiException(
+          code: 'LESSON_LOCKED',
+          message: 'Bài học này chưa được mở khóa.',
+        );
+        return false;
+      }
       current = data;
       return true;
     } catch (e) {
@@ -149,10 +168,12 @@ class LearningController extends ChangeNotifier {
         // Eligibility belongs to the server, never infer it from a local timer.
         if (result.lessonCompleted || snapshot.$1 >= snapshot.$2 * .8) {
           try {
+            final request = _request;
             final latest = await repository.overview(courseId);
-            if (!_disposed) {
+            if (!_disposed && request == _request) {
               overview = latest;
-              final saved = latest.chapters.expand((c) => c.lessons)
+              final saved = latest.chapters
+                  .expand((c) => c.lessons)
                   .where((l) => l.id == lessonId);
               if (current?.id == lessonId && saved.isNotEmpty) {
                 current!.isCompleted = saved.first.isCompleted;

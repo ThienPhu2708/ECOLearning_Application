@@ -9,6 +9,72 @@ import 'course_favorite_button.dart';
 
 enum CourseCardLayout { card, listHorizontal }
 
+/// Nhãn do API trả về, đặt trên ảnh khóa học như trang web.
+class CourseLabel extends StatelessWidget {
+  const CourseLabel({super.key, required this.label});
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final match = label.toLowerCase();
+    final personal = match.contains('phù hợp với bạn');
+    final rated = match.contains('đánh giá cao');
+    final fresh = match == 'mới';
+    final color = personal
+        ? Colors.white
+        : rated
+        ? const Color(0xFF059669)
+        : fresh
+        ? const Color(0xFF434CE8)
+        : AppColors.warning;
+    final background = personal
+        ? const Color(0xFF434CE8)
+        : rated
+        ? const Color(0xFFECFDF5)
+        : fresh
+        ? const Color(0xFFEEF2FF)
+        : AppColors.warningLight;
+    final border = rated
+        ? const Color(0xFFA7F3D0)
+        : fresh
+        ? const Color(0xFFC7D2FE)
+        : background;
+    final icon = personal
+        ? Icons.thumb_up_rounded
+        : rated
+        ? Icons.star_rounded
+        : fresh
+        ? Icons.auto_awesome
+        : Icons.local_fire_department_rounded;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: background,
+        border: Border.all(color: border),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 13),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTypography.captionTiny.copyWith(
+                color: color,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Nhãn "Phổ biến" cho các khóa thuộc nhóm khóa học phổ biến
 class PopularBadge extends StatelessWidget {
   final bool compact;
@@ -90,6 +156,7 @@ class CourseCard extends StatelessWidget {
   final VoidCallback onTap;
   final CourseCardLayout layout;
   final double? width;
+  final List<String> badges;
 
   /// Nút nhỏ đặt đè lên góc ảnh bìa (kiểu danh sách), vd: trái tim bỏ yêu thích
   final Widget? imageOverlay;
@@ -107,6 +174,7 @@ class CourseCard extends StatelessWidget {
     required this.onTap,
     this.layout = CourseCardLayout.card,
     this.width,
+    this.badges = const [],
     this.imageOverlay,
     this.isPopular = false,
     this.isFavorite,
@@ -123,6 +191,12 @@ class CourseCard extends StatelessWidget {
 
   // Bố cục Card dọc chuẩn cho danh sách cuộn ngang (Home)
   Widget _buildVerticalCard(BuildContext context) {
+    final labels = badges.where((b) => b.trim().isNotEmpty).toSet().toList();
+    final tag = course.tag.trim();
+    if (SaleBadge.showTag(tag, course.price, course.originalPrice) &&
+        !labels.contains(tag)) {
+      labels.add(tag);
+    }
     return Container(
       width: width ?? 260.0,
       decoration: BoxDecoration(
@@ -166,14 +240,20 @@ class CourseCard extends StatelessWidget {
                   // Nhãn "Phổ biến" và "Đang giảm giá" xếp dọc, đè lên góc trái của ảnh;
                   // nhãn khác của server (vd "Bán chạy") nhường sang góc phải khi đã có nhãn bên trái
                   if (isPopular ||
+                      labels.isNotEmpty ||
                       SaleBadge.isOnSale(course.price, course.originalPrice))
                     Positioned(
                       top: AppDimens.p8,
                       left: AppDimens.p8,
+                      right: 58,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          for (final label in labels) ...[
+                            CourseLabel(label: label),
+                            const SizedBox(height: 4),
+                          ],
                           if (isPopular) const PopularBadge(),
                           if (isPopular &&
                               SaleBadge.isOnSale(
@@ -190,51 +270,6 @@ class CourseCard extends StatelessWidget {
                               originalPrice: course.originalPrice,
                             ),
                         ],
-                      ),
-                    ),
-                  if (SaleBadge.showTag(
-                    course.tag,
-                    course.price,
-                    course.originalPrice,
-                  ))
-                    Positioned(
-                      top: AppDimens.p8,
-                      left:
-                          (isPopular ||
-                              SaleBadge.isOnSale(
-                                course.price,
-                                course.originalPrice,
-                              ))
-                          ? null
-                          : AppDimens.p8,
-                      right:
-                          (isPopular ||
-                              SaleBadge.isOnSale(
-                                course.price,
-                                course.originalPrice,
-                              ))
-                          ? AppDimens.p8
-                          : null,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppDimens.p8,
-                          vertical: 4.0,
-                        ),
-                        decoration: BoxDecoration(
-                          color: course.tag.contains('TOP MATCH')
-                              ? AppColors.primary
-                              : (course.isFree
-                                    ? AppColors.success
-                                    : AppColors.warning),
-                          borderRadius: BorderRadius.circular(6.0),
-                        ),
-                        child: Text(
-                          course.tag,
-                          style: AppTypography.captionTiny.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
                       ),
                     ),
                   if (imageOverlay != null || !course.isEnrolled)
@@ -380,7 +415,7 @@ class CourseCard extends StatelessWidget {
                           ),
                         ),
                         // Nhãn giảm giá đè lên góc trái của ảnh; chữ tự thu nhỏ nếu dài hơn ảnh
-                        if (onSale || isPopular)
+                        if (onSale || isPopular || badges.isNotEmpty)
                           Positioned(
                             top: 4,
                             left: 4,
@@ -393,6 +428,13 @@ class CourseCard extends StatelessWidget {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
+                                    for (final label
+                                        in badges
+                                            .where((b) => b.trim().isNotEmpty)
+                                            .toSet()) ...[
+                                      CourseLabel(label: label),
+                                      const SizedBox(height: 3),
+                                    ],
                                     if (isPopular)
                                       const PopularBadge(compact: true),
                                     if (isPopular && onSale)
@@ -471,9 +513,13 @@ class CourseCard extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(height: 6.0),
-                          RatingStars(
-                            rating: course.rating,
-                            reviewCount: course.reviewCount,
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: RatingStars(
+                              rating: course.rating,
+                              reviewCount: course.reviewCount,
+                            ),
                           ),
                         ],
                       ),

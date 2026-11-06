@@ -37,6 +37,8 @@ final _json = {
           'completedLessons': 1,
           'totalLessons': 5,
           'lessonTitle': 'Biến và kiểu dữ liệu',
+          'lessonId': 'lesson-2',
+          'positionSeconds': 75,
           'lessonNumber': 2,
           'isStarted': true,
         },
@@ -85,6 +87,8 @@ void main() {
     expect(cont.progress, 20);
     expect(cont.lessonNumber, 2);
     expect(cont.toCourse().id, 'DMKH12');
+    expect(cont.toCourse().lastLessonId, 'lesson-2');
+    expect(cont.positionSeconds, 75);
 
     final best = feed.section('best-sellers')!.courses;
     expect(best.map((c) => c.course.id), ['A', 'B']);
@@ -96,7 +100,9 @@ void main() {
     expect(teacher.toCourse().instructor, 'Trần Minh Khoa');
   });
 
-  testWidgets('các mục Trang chủ hiển thị không tràn ở màn hình hẹp', (t) async {
+  testWidgets('các mục Trang chủ hiển thị không tràn ở màn hình hẹp', (
+    t,
+  ) async {
     t.view.physicalSize = const Size(360, 800);
     t.view.devicePixelRatio = 1;
     addTearDown(t.view.reset);

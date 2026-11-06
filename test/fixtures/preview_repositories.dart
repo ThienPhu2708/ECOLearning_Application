@@ -565,6 +565,7 @@ class PreviewCourseRepository extends CourseRepository {
     String? price,
     double? minRating,
     String? sort,
+    bool webCatalog = false,
     int page = 1,
     int pageSize = 12,
   }) async {

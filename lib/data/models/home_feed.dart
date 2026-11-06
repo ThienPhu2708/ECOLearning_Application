@@ -29,6 +29,8 @@ class HomeContinueItem {
   final String lessonTitle;
   final int lessonNumber;
   final bool isStarted;
+  final String? lessonId;
+  final int positionSeconds;
 
   const HomeContinueItem({
     required this.courseId,
@@ -41,6 +43,8 @@ class HomeContinueItem {
     required this.lessonTitle,
     required this.lessonNumber,
     required this.isStarted,
+    this.lessonId,
+    this.positionSeconds = 0,
   });
 
   factory HomeContinueItem.fromJson(Map<String, dynamic> json) =>
@@ -55,6 +59,8 @@ class HomeContinueItem {
         lessonTitle: JsonUtils.asString(json['lessonTitle']),
         lessonNumber: JsonUtils.asInt(json['lessonNumber']),
         isStarted: JsonUtils.asBool(json['isStarted']),
+        lessonId: JsonUtils.asStringOrNull(json['lessonId']),
+        positionSeconds: JsonUtils.asInt(json['positionSeconds']),
       );
 
   /// Khóa học tối thiểu để mở màn học (màn học tự tải phần còn lại từ API).
@@ -65,6 +71,7 @@ class HomeContinueItem {
     'instructor': instructor,
     'progress': progress,
     'isEnrolled': true,
+    'lastLessonId': lessonId,
   });
 }
 
@@ -124,8 +131,7 @@ class HomeSection {
     this.teachers = const [],
   });
 
-  bool get isEmpty =>
-      courses.isEmpty && continues.isEmpty && teachers.isEmpty;
+  bool get isEmpty => courses.isEmpty && continues.isEmpty && teachers.isEmpty;
 
   factory HomeSection.fromJson(Map<String, dynamic> json) {
     final type = JsonUtils.asString(json['type']);
@@ -158,10 +164,9 @@ class HomeFeed {
 
   factory HomeFeed.fromJson(Map<String, dynamic> json) => HomeFeed(
     isPersonalized: JsonUtils.asBool(json['isPersonalized']),
-    sections: JsonUtils.asMapList(json['sections'])
-        .map(HomeSection.fromJson)
-        .where((s) => !s.isEmpty)
-        .toList(),
+    sections: JsonUtils.asMapList(
+      json['sections'],
+    ).map(HomeSection.fromJson).where((s) => !s.isEmpty).toList(),
   );
 
   HomeSection? section(String key) {

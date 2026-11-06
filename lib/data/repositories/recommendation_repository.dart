@@ -3,6 +3,26 @@ import '../../core/utils/json_utils.dart';
 import '../models/category.dart';
 import '../models/course.dart';
 
+class PersonalRecommendations {
+  final int interactedCourses;
+  final int total;
+  final String? badge;
+  final List<Course> items;
+  const PersonalRecommendations({
+    required this.interactedCourses,
+    required this.total,
+    required this.badge,
+    required this.items,
+  });
+  factory PersonalRecommendations.fromJson(Map<String, dynamic> map) =>
+      PersonalRecommendations(
+        interactedCourses: JsonUtils.asInt(map['interactedCourses']),
+        total: JsonUtils.asInt(map['total']),
+        badge: JsonUtils.asStringOrNull(map['badge']),
+        items: JsonUtils.asMapList(map['items']).map(Course.fromJson).toList(),
+      );
+}
+
 /// Kết quả gợi ý (C1). [type]: `personal` (lọc cộng tác), `interest` (theo sở thích), `popular` (phổ biến)
 class RecommendationResult {
   final String type;
@@ -66,6 +86,26 @@ class RecommendationRepository {
   RecommendationRepository({ApiClient? client})
     : _api = client ?? ApiClient.instance;
   final ApiClient _api;
+
+  Future<PersonalRecommendations> personal({int limit = 12}) async =>
+      PersonalRecommendations.fromJson(
+        JsonUtils.asMap(
+          await _api.get(
+            '/recommendations/personal',
+            query: {'limit': limit.clamp(1, 30)},
+          ),
+        ),
+      );
+
+  Future<PersonalRecommendations> refreshPersonal({int limit = 12}) async =>
+      PersonalRecommendations.fromJson(
+        JsonUtils.asMap(
+          await _api.post(
+            '/recommendations/personal/refresh',
+            query: {'limit': limit.clamp(1, 30)},
+          ),
+        ),
+      );
 
   /// C1. Khóa học gợi ý (không đăng nhập vẫn gọi được, khi đó type = popular)
   Future<RecommendationResult> recommendations({int limit = 10}) async {

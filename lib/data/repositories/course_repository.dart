@@ -23,8 +23,9 @@ class CourseRepository {
   final ApiClient _api;
 
   /// B1. Danh sách lĩnh vực (có ảnh minh họa)
-  Future<List<Category>> categories() async =>
-      JsonUtils.asMapList(await _api.get('/categories')).map(Category.fromJson).toList();
+  Future<List<Category>> categories() async => JsonUtils.asMapList(
+    await _api.get('/categories'),
+  ).map(Category.fromJson).toList();
 
   /// B2. Danh sách / tìm kiếm khóa học.
   /// [level]: Cơ bản / Trung cấp / Nâng cao • [price]: free / paid •
@@ -36,19 +37,24 @@ class CourseRepository {
     String? price,
     double? minRating,
     String? sort,
+    bool webCatalog = false,
     int page = 1,
     int pageSize = ApiConfig.defaultPageSize,
   }) async {
-    final data = await _api.get('/courses', query: {
-      'q': q,
-      'categoryId': categoryId,
-      'level': level,
-      'price': price,
-      'minRating': minRating,
-      'sort': sort,
-      'page': page,
-      'pageSize': pageSize,
-    });
+    final data = await _api.get(
+      '/courses',
+      query: {
+        'q': q,
+        'categoryId': categoryId,
+        'level': level,
+        'price': price,
+        'minRating': minRating,
+        'sort': sort,
+        if (webCatalog) 'webCatalog': true,
+        'page': page,
+        'pageSize': pageSize,
+      },
+    );
     return PagedResult.fromJson(data, Course.fromJson);
   }
 
@@ -57,15 +63,29 @@ class CourseRepository {
       Course.fromJson(JsonUtils.asMap(await _api.get('/courses/$courseId')));
 
   /// B4. Đánh giá của khóa học: `{ "summary": {...}, "items": [...], "page", ... }`
-  Future<Map<String, dynamic>> reviews(String courseId, {int? stars, int page = 1}) async =>
-      JsonUtils.asMap(await _api.get('/courses/$courseId/reviews', query: {'stars': stars, 'page': page}));
+  Future<Map<String, dynamic>> reviews(
+    String courseId, {
+    int? stars,
+    int page = 1,
+  }) async => JsonUtils.asMap(
+    await _api.get(
+      '/courses/$courseId/reviews',
+      query: {'stars': stars, 'page': page},
+    ),
+  );
 
   /// B5. Gợi ý từ khóa: `{ "keywords": [...], "courses": [...] }`. Để trống [q] → từ khóa thịnh hành.
-  Future<({List<String> keywords, List<Course> courses})> suggest(String q) async {
-    final map = JsonUtils.asMap(await _api.get('/search/suggest', query: {'q': q}));
+  Future<({List<String> keywords, List<Course> courses})> suggest(
+    String q,
+  ) async {
+    final map = JsonUtils.asMap(
+      await _api.get('/search/suggest', query: {'q': q}),
+    );
     return (
       keywords: JsonUtils.asStringList(map['keywords']),
-      courses: JsonUtils.asMapList(map['courses']).map(Course.fromJson).toList(),
+      courses: JsonUtils.asMapList(
+        map['courses'],
+      ).map(Course.fromJson).toList(),
     );
   }
 
@@ -76,11 +96,14 @@ class CourseRepository {
 
   /// B7. Khóa học tương tự
   Future<List<Course>> similar(String courseId, {int limit = 8}) async =>
-      JsonUtils.asMapList(await _api.get('/courses/$courseId/similar', query: {'limit': limit}))
-          .map(Course.fromJson)
-          .toList();
+      JsonUtils.asMapList(
+        await _api.get('/courses/$courseId/similar', query: {'limit': limit}),
+      ).map(Course.fromJson).toList();
 
   /// B8. Link video xem thử của bài miễn phí: `{ "videoUrl", "durationSeconds" }`
-  Future<Map<String, dynamic>> preview(String courseId, String lessonId) async =>
+  Future<Map<String, dynamic>> preview(
+    String courseId,
+    String lessonId,
+  ) async =>
       JsonUtils.asMap(await _api.get('/courses/$courseId/preview/$lessonId'));
 }

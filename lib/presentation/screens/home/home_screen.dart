@@ -10,6 +10,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_dimens.dart';
 import '../../../core/constants/app_typography.dart';
 import '../../../core/config/api_config.dart';
+import '../../../core/storage/token_storage.dart';
 import '../../../data/models/category.dart';
 import '../../../core/network/paged_result.dart';
 import '../../../data/models/course.dart';
@@ -38,12 +39,25 @@ import '../../widgets/price_display.dart';
 import '../../widgets/rating_stars.dart';
 import '../course_detail/course_detail_screen.dart';
 import '../learning/learning_space_screen.dart';
+import 'personal_recommendations_screen.dart';
+import '../explore/explore_screen.dart';
+import '../explore/filter_bottom_sheet.dart';
+import 'recently_viewed_screen.dart';
 
 /// Tab 1: Màn hình Trang chủ theo QuyChuanThietKe_App.md Mục 4.2 & UC7
 class HomeScreen extends StatefulWidget {
   final Function(int tabIndex)? onNavigateTab;
+  final ValueChanged<CourseGroup>? onExploreGroup;
+  final VoidCallback? onExploreTopRated;
+  final ValueChanged<String>? onExploreSort;
 
-  const HomeScreen({super.key, this.onNavigateTab});
+  const HomeScreen({
+    super.key,
+    this.onNavigateTab,
+    this.onExploreGroup,
+    this.onExploreTopRated,
+    this.onExploreSort,
+  });
 
   @override
   State<HomeScreen> createState() => HomeScreenState();
@@ -67,7 +81,9 @@ class HomeScreenState extends State<HomeScreen> {
   RecommendationResult? _recommend;
   List<Course> _popular = [];
   List<Coupon> _promotions = [];
-  HomeFeed? _feed; // GET /home: các mục cá nhân hóa; lỗi thì chỉ mất các mục này
+  HomeFeed?
+  _feed; // GET /home: các mục cá nhân hóa; lỗi thì chỉ mất các mục này
+  Set<String> _personalMatches = {};
 
   // Khối "Khám phá khóa học" theo danh mục đang chọn (B2)
   bool _loadingCourses = false;
@@ -94,9 +110,9 @@ class HomeScreenState extends State<HomeScreen> {
       _chatbotTeaser = false;
       _chatbotUnread = 0;
     });
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const ChatbotScreen()),
-    );
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const ChatbotScreen()));
   }
 
   @override
@@ -105,6 +121,7 @@ class HomeScreenState extends State<HomeScreen> {
     _load();
     _loadPromotions();
     _loadFeed();
+    _loadPersonalMatches();
     _checkChatbot();
     // Popup quảng cáo ưu đãi (ảnh chiến dịch / chương trình, ưu đãi thân thiết): mỗi lượt mở app hiện một ảnh chưa xem
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -135,7 +152,34 @@ class HomeScreenState extends State<HomeScreen> {
   /// Làm mới dữ liệu. [silent] = true (kéo xuống để làm mới, quay lại từ màn khác) thì giữ nguyên
   /// nội dung đang hiện, không thay bằng vòng tải toàn trang.
   Future<void> reload() async {
-    await Future.wait([_load(silent: true), _loadPromotions(), _loadFeed()]);
+    await Future.wait([
+      _load(silent: true),
+      _loadPromotions(),
+      _loadFeed(),
+      _loadPersonalMatches(),
+    ]);
+  }
+
+  Future<void> _loadPersonalMatches() async {
+    final token = TokenStorage.instance.token;
+    if (token == null || token.isEmpty) {
+      if (mounted) setState(() => _personalMatches = {});
+      return;
+    }
+    try {
+      final result = await _recoRepo.personal(limit: 30);
+      if (mounted && TokenStorage.instance.token == token) {
+        setState(
+          () => _personalMatches = result.items
+              .map((course) => course.id)
+              .toSet(),
+        );
+      }
+    } catch (_) {
+      if (mounted && TokenStorage.instance.token == token) {
+        setState(() => _personalMatches = {});
+      }
+    }
   }
 
   Future<void> _loadFeed() async {
@@ -158,6 +202,72 @@ class HomeScreenState extends State<HomeScreen> {
   }
 
   /// Mục khóa học của /home theo `key`, hoặc null nếu không có.
+  void _openGroup(CourseGroup group) {
+    if (widget.onExploreGroup != null) {
+      widget.onExploreGroup!(group);
+      return;
+    }
+    final key = GlobalKey<ExploreScreenState>();
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => Scaffold(
+          appBar: AppBar(title: const Text('Khám phá khóa học')),
+          body: ExploreScreen(key: key),
+        ),
+      ),
+    );
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => key.currentState?.showGroup(group),
+    );
+  }
+
+  void _openTopRated() {
+    if (widget.onExploreTopRated != null) {
+      widget.onExploreTopRated!();
+      return;
+    }
+    final key = GlobalKey<ExploreScreenState>();
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => Scaffold(
+          appBar: AppBar(title: const Text('Khám phá khóa học')),
+          body: ExploreScreen(key: key),
+        ),
+      ),
+    );
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => key.currentState?.showTopRated(),
+    );
+  }
+
+  void _openSort(String sort) {
+    if (widget.onExploreSort != null) {
+      widget.onExploreSort!(sort);
+      return;
+    }
+    final key = GlobalKey<ExploreScreenState>();
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => Scaffold(
+          appBar: AppBar(title: const Text('Khám phá khóa học')),
+          body: ExploreScreen(key: key),
+        ),
+      ),
+    );
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => key.currentState?.showSort(sort),
+    );
+  }
+
+  Future<void> _openRecentlyViewed() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => RecentlyViewedScreen(repository: _homeRepo),
+      ),
+    );
+    if (mounted) await _loadFeed();
+  }
+
   Widget? _feedRail(String key) {
     final section = _feed?.section(key);
     if (section == null || section.courses.isEmpty) return null;
@@ -166,9 +276,47 @@ class HomeScreenState extends State<HomeScreen> {
       child: HomeCourseRail(
         section: section,
         onTap: (course) => _navigateToDetail(course, ClickSource.home),
-        onSeeAll: () => widget.onNavigateTab?.call(1),
+        onSeeAll: key == 'because-you-learned'
+            ? null
+            : key == 'favorites'
+            ? () => _openGroup(CourseGroup.favorites)
+            : key == 'best-sellers'
+            ? () => _openGroup(CourseGroup.bestSellers)
+            : key == 'top-rated'
+            ? _openTopRated
+            : key == 'new-releases'
+            ? () => _openSort('newest')
+            : key == 'recently-viewed'
+            ? _openRecentlyViewed
+            : () => widget.onNavigateTab?.call(1),
       ),
     );
+  }
+
+  Widget? _homeFeedSection(HomeSection section) {
+    Widget? child;
+    if (section.type == 'continue' && section.continues.isNotEmpty) {
+      child = HomeContinueSection(section: section, onOpen: _openContinue);
+    } else if (section.type == 'courses' && section.courses.isNotEmpty) {
+      return _feedRail(section.key);
+    } else if (section.type == 'teachers' && section.teachers.isNotEmpty) {
+      child = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          homeSectionHeader(section.title, section.subtitle),
+          const SizedBox(height: 12),
+          InstructorStrip(
+            instructors: [
+              for (final teacher in section.teachers)
+                InstructorEntry(teacher.toCourse(), teacher.coursesCount),
+            ],
+          ),
+        ],
+      );
+    }
+    return child == null
+        ? null
+        : Padding(padding: const EdgeInsets.only(bottom: 24), child: child);
   }
 
   Future<void> _loadPromotions() async {
@@ -302,7 +450,10 @@ class HomeScreenState extends State<HomeScreen> {
   Future<void> _navigateToDetail(Course course, String source) async {
     await CourseDetailScreen.open(context, course, source);
     // Quay lại từ chi tiết: lượt xem / thả tim vừa rồi có thể làm đổi gợi ý
-    if (mounted) _load(silent: true);
+    if (mounted) {
+      _load(silent: true);
+      _loadPersonalMatches();
+    }
   }
 
   @override
@@ -336,14 +487,9 @@ class HomeScreenState extends State<HomeScreen> {
                     HomeHeroCarousel(onNavigateTab: widget.onNavigateTab),
                     const SizedBox(height: 24.0),
 
-                    // 1b. TIẾP TỤC HỌC (khóa đang học dở)
-                    if (_feed?.section('continue-learning') case final cont?) ...[
-                      HomeContinueSection(
-                        section: cont,
-                        onOpen: _openContinue,
-                      ),
-                      const SizedBox(height: 24.0),
-                    ],
+                    ...(_feed?.sections ?? <HomeSection>[])
+                        .map(_homeFeedSection)
+                        .whereType<Widget>(),
 
                     if (_promotions.isNotEmpty) ...[
                       _buildPromotionSection(),
@@ -351,6 +497,18 @@ class HomeScreenState extends State<HomeScreen> {
                     ],
 
                     // 2. GỢI Ý RIÊNG CHO BẠN (tiêu đề đổi theo type của C1)
+                    if (context.watch<AuthProvider>().isLoggedIn)
+                      ListTile(
+                        title: const Text('Khóa học gợi ý'),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => PersonalRecommendationsScreen(
+                              repository: _recoRepo,
+                            ),
+                          ),
+                        ),
+                      ),
                     if (_recommend != null && _recommend!.items.isNotEmpty) ...[
                       _buildTopMatchSection(),
                       if (_recommend!.items.length > 1) ...[
@@ -364,32 +522,14 @@ class HomeScreenState extends State<HomeScreen> {
                     _buildCategoriesSection(),
                     const SizedBox(height: 24.0),
 
-                    // 4. BÁN CHẠY TUẦN NÀY (server); chưa có thì dùng danh sách phổ biến
-                    if (_feedRail('best-sellers') case final rail?)
-                      rail
-                    else if (_popular.isNotEmpty) ...[
+                    if (_popular.isNotEmpty) ...[
                       _buildTrendingSection(),
                       const SizedBox(height: 24.0),
                     ],
 
-                    // 4a. VÌ BẠN ĐÃ HỌC ...
-                    ?_feedRail('because-you-learned'),
-
                     // 4b. KHÓA HỌC ĐANG GIẢM GIÁ
                     if (_saleCourses.isNotEmpty) ...[
                       _buildSaleSection(),
-                      const SizedBox(height: 24.0),
-                    ],
-
-                    // 4c. ĐÁNH GIÁ CAO, MỚI RA MẮT, YÊU THÍCH, ĐÃ XEM GẦN ĐÂY
-                    ?_feedRail('top-rated'),
-                    ?_feedRail('new-releases'),
-                    ?_feedRail('favorites'),
-                    ?_feedRail('recently-viewed'),
-
-                    // 4d. GIẢNG VIÊN NỔI BẬT
-                    if (_instructors.isNotEmpty) ...[
-                      _buildInstructorSection(),
                       const SizedBox(height: 24.0),
                     ],
 
@@ -594,6 +734,18 @@ class HomeScreenState extends State<HomeScreen> {
                                   ),
                                 ),
                               ),
+                              if (_personalMatches.contains(course.id))
+                                const Positioned(
+                                  top: 8,
+                                  left: 8,
+                                  right: 58,
+                                  child: Align(
+                                    alignment: Alignment.topLeft,
+                                    child: CourseLabel(
+                                      label: 'Phù hợp với bạn',
+                                    ),
+                                  ),
+                                ),
                               if (!course.isEnrolled)
                                 Positioned(
                                   top: 8,
@@ -698,6 +850,10 @@ class HomeScreenState extends State<HomeScreen> {
                 const SizedBox(width: AppDimens.p12),
             itemBuilder: (context, index) => CourseCard(
               course: items[index],
+              badges: [
+                if (_personalMatches.contains(items[index].id))
+                  'Phù hợp với bạn',
+              ],
               isPopular: _isPopular(items[index]),
               onTap: () =>
                   _navigateToDetail(items[index], ClickSource.recommend),
@@ -785,40 +941,6 @@ class HomeScreenState extends State<HomeScreen> {
         .toList();
   }
 
-  /// Giảng viên gom từ những danh sách đã tải (API chưa có endpoint giảng viên)
-  List<InstructorEntry> get _instructors {
-    final teachers = _feed?.section('featured-teachers')?.teachers;
-    if (teachers != null && teachers.isNotEmpty) {
-      return [
-        for (final t in teachers) InstructorEntry(t.toCourse(), t.coursesCount),
-      ];
-    }
-    return InstructorEntry.group([
-      ...?_recommend?.items,
-      ..._popular,
-      ..._courses,
-    ]).take(10).toList();
-  }
-
-  Widget _buildInstructorSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: AppDimens.p16),
-          child: Text(
-            'Giảng viên nổi bật',
-            style: AppTypography.titleMedium.copyWith(
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ),
-        const SizedBox(height: 12.0),
-        InstructorStrip(instructors: _instructors),
-      ],
-    );
-  }
-
   Widget _buildSaleSection() {
     final items = _saleCourses;
     return Column(
@@ -878,11 +1000,7 @@ class HomeScreenState extends State<HomeScreen> {
                 ],
               ),
               GestureDetector(
-                onTap: () {
-                  if (widget.onNavigateTab != null) {
-                    widget.onNavigateTab!(1);
-                  }
-                },
+                onTap: () => _openSort('popular'),
                 child: Text(
                   'Xem tất cả >',
                   style: AppTypography.captionTiny.copyWith(

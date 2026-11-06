@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/utils/formatters.dart';
+import 'lesson_subtitles.dart';
 
 /// Shared controls for the inline and fullscreen player. Progress is read-only.
 class LessonVideoPlayer extends StatefulWidget {
@@ -20,6 +21,7 @@ class LessonVideoPlayer extends StatefulWidget {
     this.fullscreen = false,
     this.onPrevious,
     this.onNext,
+    this.subtitles,
   });
   final VideoPlayerController? controller;
   final String title, posterUrl;
@@ -28,6 +30,7 @@ class LessonVideoPlayer extends StatefulWidget {
   final VoidCallback onBack, onRetry, onFullscreen;
   final Future<void> Function() onPlayPause;
   final VoidCallback? onPrevious, onNext;
+  final LessonSubtitles? subtitles;
   @override
   State<LessonVideoPlayer> createState() => _LessonVideoPlayerState();
 }
@@ -133,9 +136,13 @@ class _LessonVideoPlayerState extends State<LessonVideoPlayer> {
   @override
   Widget build(BuildContext context) {
     final video = widget.controller;
-    return video == null
-        ? _buildPlayer()
-        : AnimatedBuilder(animation: video, builder: (_, _) => _buildPlayer());
+    return AnimatedBuilder(
+      animation: Listenable.merge([
+        ?video,
+        if (widget.subtitles != null) widget.subtitles!,
+      ]),
+      builder: (_, _) => _buildPlayer(),
+    );
   }
 
   Widget _buildPlayer() {
@@ -249,6 +256,52 @@ class _LessonVideoPlayerState extends State<LessonVideoPlayer> {
                   child: CircularProgressIndicator(
                     strokeWidth: 3,
                     color: Colors.white,
+                  ),
+                ),
+              ),
+            if (widget.subtitles?.message case final String message)
+              Positioned(
+                bottom: 65,
+                left: 20,
+                right: 20,
+                child: Center(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Colors.black87,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: Text(
+                        message,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  ),
+                ),
+              )
+            else if (ready &&
+                (widget.subtitles?.textAt(video.value.position).isNotEmpty ??
+                    false))
+              Positioned(
+                bottom: visible ? 70 : 20,
+                left: 20,
+                right: 20,
+                child: Center(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Colors.black87,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: Text(
+                        widget.subtitles!.textAt(video.value.position),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -383,6 +436,19 @@ class _LessonVideoPlayerState extends State<LessonVideoPlayer> {
                               ),
                             ),
                           const Spacer(),
+                          if (widget.subtitles != null)
+                            IconButton(
+                              tooltip: widget.subtitles!.enabled
+                                  ? 'Tắt phụ đề'
+                                  : 'Bật phụ đề',
+                              onPressed: widget.subtitles!.loading
+                                  ? null
+                                  : widget.subtitles!.toggle,
+                              color: widget.subtitles!.enabled
+                                  ? AppColors.primary
+                                  : Colors.white,
+                              icon: const Icon(Icons.closed_caption_outlined),
+                            ),
                           IconButton(
                             tooltip: widget.fullscreen
                                 ? 'Thu nhỏ video'

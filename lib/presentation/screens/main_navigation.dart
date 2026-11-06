@@ -7,6 +7,7 @@ import '../../core/notifications/study_reminder_service.dart';
 import '../../core/constants/app_colors.dart';
 import '../widgets/custom_app_bar.dart';
 import 'explore/explore_screen.dart';
+import 'explore/filter_bottom_sheet.dart';
 import 'home/home_screen.dart';
 import 'my_courses/my_courses_screen.dart';
 import 'profile/profile_screen.dart';
@@ -29,6 +30,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
   final _homeKey = GlobalKey<HomeScreenState>();
   final _coursesKey = GlobalKey<MyCoursesScreenState>();
+  final _exploreKey = GlobalKey<ExploreScreenState>();
 
   @override
   void initState() {
@@ -72,6 +74,21 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     });
   }
 
+  void _openExploreGroup(CourseGroup group) {
+    _onTabSelected(1);
+    _exploreKey.currentState?.showGroup(group);
+  }
+
+  void _openExploreTopRated() {
+    _onTabSelected(1);
+    _exploreKey.currentState?.showTopRated();
+  }
+
+  void _openExploreSort(String sort) {
+    _onTabSelected(1);
+    _exploreKey.currentState?.showSort(sort);
+  }
+
   @override
   Widget build(BuildContext context) {
     final signedIn = context.watch<AuthProvider?>()?.isLoggedIn ?? false;
@@ -111,8 +128,14 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       body: IndexedStack(
         index: _currentIndex,
         children: [
-          HomeScreen(key: _homeKey, onNavigateTab: _onTabSelected),
-          const ExploreScreen(),
+          HomeScreen(
+            key: _homeKey,
+            onNavigateTab: _onTabSelected,
+            onExploreGroup: _openExploreGroup,
+            onExploreTopRated: _openExploreTopRated,
+            onExploreSort: _openExploreSort,
+          ),
+          ExploreScreen(key: _exploreKey),
           signedIn
               ? MyCoursesScreen(
                   key: _coursesKey,

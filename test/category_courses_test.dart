@@ -8,20 +8,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Course _course(String id, String title) => Course(
-      id: id,
-      title: title,
-      category: 'Y tế',
-      instructor: 'GV',
-      rating: 4,
-      reviewCount: 1,
-      price: 100000,
-      originalPrice: 100000,
-      imageUrl: '',
-      tag: '',
-      level: 'Cơ bản',
-      duration: '1h',
-      lessonsCount: 2,
-    );
+  id: id,
+  title: title,
+  category: 'Y tế',
+  instructor: 'GV',
+  rating: 4,
+  reviewCount: 1,
+  price: 100000,
+  originalPrice: 100000,
+  imageUrl: '',
+  tag: '',
+  level: 'Cơ bản',
+  duration: '1h',
+  lessonsCount: 2,
+);
 
 /// Ghi lại tham số gọi API và trả 2 trang giả
 class _FakeCourses extends CourseRepository {
@@ -35,6 +35,7 @@ class _FakeCourses extends CourseRepository {
     String? price,
     double? minRating,
     String? sort,
+    bool webCatalog = false,
     int page = 1,
     int pageSize = 10,
   }) async {
@@ -50,19 +51,28 @@ class _FakeCourses extends CourseRepository {
 }
 
 void main() {
-  testWidgets('Danh mục hiện khóa học của danh mục và chuyển trang', (tester) async {
+  testWidgets('Danh mục hiện khóa học của danh mục và chuyển trang', (
+    tester,
+  ) async {
     tester.view.physicalSize = const Size(1080, 2200);
     tester.view.devicePixelRatio = 3;
     addTearDown(tester.view.reset);
 
     final repo = _FakeCourses();
-    await tester.pumpWidget(MaterialApp(
-      theme: AppTheme.lightTheme,
-      home: CategoryCoursesScreen(
-        category: const Category(id: 'CAT-006', name: 'Y tế', icon: Icons.school, emoji: ''),
-        repository: repo,
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme,
+        home: CategoryCoursesScreen(
+          category: const Category(
+            id: 'CAT-006',
+            name: 'Y tế',
+            icon: Icons.school,
+            emoji: '',
+          ),
+          repository: repo,
+        ),
       ),
-    ));
+    );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 

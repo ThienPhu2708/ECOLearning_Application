@@ -67,6 +67,28 @@ class ApiClient {
   Future<dynamic> delete(String path, {Object? data}) =>
       _send(() => _dio.delete(path, data: data));
 
+  /// Private resources are fetched only from the API origin, without redirects.
+  Future<List<int>> privateBytes(String path) async {
+    final uri = Uri.parse(path);
+    final base = Uri.parse(ApiConfig.baseUrl);
+    if (uri.hasAuthority && uri.origin != base.origin) {
+      throw const ApiException(message: 'Đường dẫn tài nguyên không hợp lệ.');
+    }
+    final data = await _send(
+      () => _dio.get<List<int>>(
+        path,
+        options: Options(
+          responseType: ResponseType.bytes,
+          followRedirects: false,
+        ),
+      ),
+    );
+    return List<int>.from(data as List);
+  }
+
+  Future<dynamic> postMultipart(String path, Map<String, dynamic> fields) =>
+      _send(() => _dio.post(path, data: FormData.fromMap(fields)));
+
   /// Private chat media stays on the API origin; never forward the bearer token to redirects.
   Future<List<int>> chatImage(int messageId) async {
     final bytes = await _send(

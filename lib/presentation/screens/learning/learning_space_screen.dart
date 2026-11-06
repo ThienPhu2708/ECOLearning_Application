@@ -1,10 +1,11 @@
 import 'review_flow.dart';
-import '../messages/chat_entry.dart';
+import 'lesson_discussion_screen.dart';
 import '../../../data/repositories/course_repository.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'lesson_video_player.dart';
+import 'lesson_subtitles.dart';
 import '../learning_support/learning_data_scope.dart';
 import 'package:video_player/video_player.dart';
 import '../../../core/config/api_config.dart';
@@ -50,6 +51,7 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
   late final LearningController _learning;
   late final TabController _tabs;
   VideoPlayerController? _video;
+  LessonSubtitles? _subtitles;
   Timer? _saveTimer;
   Object? _videoError;
   bool _videoLoading = false;
@@ -74,6 +76,7 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
           LearningDataScope.read(context)?.learning ??
           LearningRepository(),
       _course.id,
+      initialLessonId: _course.lastLessonId,
     );
     _learning.addListener(_update);
     _load();
@@ -95,6 +98,11 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
 
   Future<void> _openVideo() async {
     final request = ++_videoRequest;
+    _subtitles?.dispose();
+    _subtitles = LessonSubtitles(
+      hasSubtitle: _currentLesson.hasSubtitle,
+      url: _currentLesson.subtitleUrl,
+    );
     final old = _video;
     _video = null;
     if (old != null) {
@@ -334,6 +342,7 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _videoRequest++;
+    _subtitles?.dispose();
     _saveTimer?.cancel();
     unawaited(_saveProgress());
     _video?.removeListener(_onVideo);
@@ -411,11 +420,25 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
                     children: [
                       SizedBox(
                         width: width,
-                        child: ChatEntry(
-                          courseId: _course.id,
-                          beforeOpen: () async {
+                        child: TextButton.icon(
+                          icon: const Icon(Icons.forum_outlined, size: 18),
+                          label: const Text('Thảo luận bài học'),
+                          onPressed: () async {
                             await _video?.pause();
                             await _saveProgress();
+                            if (!context.mounted) return;
+                            await Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => LessonDiscussionScreen(
+                                  courseId: _course.id,
+                                  lessonId: _currentLesson.id,
+                                  lessonTitle: _currentLesson.title,
+                                  repository: LearningDataScope.read(
+                                    context,
+                                  )?.discussions,
+                                ),
+                              ),
+                            );
                           },
                         ),
                       ),
@@ -512,6 +535,7 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
     return AspectRatio(
       aspectRatio: 16 / 9,
       child: LessonVideoPlayer(
+        subtitles: _subtitles,
         controller: _video,
         title: _currentLesson.title,
         posterUrl: _course.imageUrl,
@@ -557,6 +581,7 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
             backgroundColor: Colors.black,
             body: SafeArea(
               child: LessonVideoPlayer(
+                subtitles: _subtitles,
                 controller: video,
                 title: _currentLesson.title,
                 fullscreen: true,

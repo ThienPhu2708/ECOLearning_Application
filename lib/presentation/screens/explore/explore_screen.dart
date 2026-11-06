@@ -3,13 +3,16 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_dimens.dart';
-import '../../../core/config/api_config.dart';
 import '../../../core/constants/app_typography.dart';
 import '../../../core/utils/text_search.dart';
+import '../../../core/network/api_exception.dart';
+import '../../../core/storage/token_storage.dart';
 import '../../../data/models/category.dart';
 import '../../../core/network/paged_result.dart';
 import '../../../data/models/course.dart';
 import '../../../data/repositories/course_repository.dart';
+import '../../../data/repositories/favorite_repository.dart';
+import '../../../data/repositories/home_repository.dart';
 import '../learning_support/learning_data_scope.dart';
 import '../../widgets/course_card.dart';
 import '../../widgets/instructor_strip.dart';
@@ -20,15 +23,20 @@ import 'filter_bottom_sheet.dart';
 
 /// Tab 2: Màn hình Khám phá & Tìm kiếm nâng cao theo QuyChuanThietKe_App.md Mục 4.3 & UC4
 class ExploreScreen extends StatefulWidget {
-  const ExploreScreen({super.key});
+  const ExploreScreen({super.key, this.repository, this.favorites, this.home});
+  final CourseRepository? repository;
+  final FavoriteRepository? favorites;
+  final HomeRepository? home;
 
   @override
-  State<ExploreScreen> createState() => _ExploreScreenState();
+  State<ExploreScreen> createState() => ExploreScreenState();
 }
 
-class _ExploreScreenState extends State<ExploreScreen> {
+class ExploreScreenState extends State<ExploreScreen> {
   CourseRepository get _repo =>
-      LearningDataScope.read(context)?.courses ?? CourseRepository();
+      widget.repository ??
+      LearningDataScope.read(context)?.courses ??
+      CourseRepository();
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   Timer? _debounce;
@@ -78,7 +86,11 @@ class _ExploreScreenState extends State<ExploreScreen> {
       final all = <Course>[];
       var page = 1;
       while (page <= 5) {
-        final result = await _repo.courses(sort: 'popular', pageSize: 50, page: page);
+        final result = await _repo.courses(
+          sort: 'popular',
+          pageSize: 50,
+          page: page,
+        );
         all.addAll(result.items);
         if (!result.hasMore) break;
         page++;
@@ -106,90 +118,108 @@ class _ExploreScreenState extends State<ExploreScreen> {
     super.dispose();
   }
 
-  // Kết quả đã lọc theo từ khóa, giữ lại để chuyển trang không phải tải lại
-  List<Course> _matches = [];
-  String? _matchesKey;
-
-  Future<PagedResult<Course>> _load(int page, int pageSize) {
-    final f = _filterCriteria;
+  Future<PagedResult<Course>> _load({
+    required int page,
+    required String query,
+    required String? categoryId,
+    required FilterCriteria criteria,
+  }) async {
+    final f = criteria;
+    if (f.group != CourseGroup.all) {
+      final List<Course> source;
+      if (f.group == CourseGroup.favorites) {
+        if (widget.favorites == null && !TokenStorage.instance.hasToken) {
+          throw const ApiException(
+            message: 'Vui lòng đăng nhập để xem khóa học yêu thích.',
+          );
+        }
+        final repository =
+            widget.favorites ??
+            LearningDataScope.read(context)?.favorites ??
+            FavoriteRepository();
+        source = [];
+        var nextPage = 1;
+        while (true) {
+          final result = await repository.list(page: nextPage);
+          if (result.page != nextPage) {
+            throw const FormatException('Invalid favorites page');
+          }
+          source.addAll(result.items);
+          if (!result.hasMore) break;
+          nextPage++;
+        }
+      } else {
+        final feed = await (widget.home ?? HomeRepository()).home();
+        source =
+            feed
+                .section('best-sellers')
+                ?.courses
+                .map((item) => item.course)
+                .toList() ??
+            [];
+      }
+      final unique = <String, Course>{};
+      for (final course in source) {
+        if ((categoryId == null || course.categoryId == categoryId) &&
+            (f.level == 'Tất cả' || course.level == f.level) &&
+            (!f.onlyFree || course.originalPrice == 0) &&
+            (f.minRating == 0 || course.rating >= f.minRating) &&
+            (query.isEmpty ||
+                TextSearch.contains(
+                  '${course.title} ${course.instructor} ${course.category}',
+                  query,
+                ))) {
+          unique[course.id] = course;
+        }
+      }
+      final items = unique.values.toList();
+      const size = 12;
+      final pages = (items.length / size).ceil();
+      return PagedResult(
+        items: items.skip((page - 1) * size).take(size).toList(),
+        page: page,
+        pageSize: size,
+        total: items.length,
+        totalPages: pages,
+      );
+    }
     return _repo.courses(
-      q: _searchQuery,
-      categoryId: _categoryId,
+      q: query,
+      categoryId: categoryId,
       level: f.level == 'Tất cả' ? null : f.level,
       price: f.onlyFree ? 'free' : null,
       minRating: f.minRating > 0 ? f.minRating : null,
       sort: f.sort,
+      webCatalog: true,
       page: page,
-      pageSize: pageSize,
+      pageSize: 12, // Trang danh sách khóa học trên web dùng 12 khóa mỗi trang.
     );
   }
 
-  /// Khóa khớp từ khóa ở tên khóa, giảng viên hoặc lĩnh vực (server còn tìm cả
-  /// trong mô tả nên trả nhiều khóa không liên quan). Khớp nguyên từ xếp trước
-  /// khớp đầu từ; trong mỗi nhóm: tên khóa, giảng viên, rồi lĩnh vực. Cùng mức
-  /// thì giữ thứ tự của server.
-  List<Course> _relevant(List<Course> all) {
-    final q = _searchQuery;
-    final scored = <(int, int, Course)>[];
-    for (var i = 0; i < all.length; i++) {
-      final c = all[i];
-      final every = '${c.title} ${c.instructor} ${c.category}';
-      final score = TextSearch.contains(c.title, q, wholeWord: true)
-          ? 0
-          : TextSearch.contains(c.instructor, q, wholeWord: true)
-          ? 1
-          : TextSearch.contains(every, q, wholeWord: true)
-          ? 2
-          : TextSearch.contains(c.title, q)
-          ? 3
-          : TextSearch.contains(c.instructor, q)
-          ? 4
-          : TextSearch.contains(every, q)
-          ? 5
-          : -1;
-      if (score >= 0) scored.add((score, i, c));
-    }
-    scored.sort((a, b) {
-      final byScore = a.$1.compareTo(b.$1);
-      return byScore != 0 ? byScore : a.$2.compareTo(b.$2);
-    });
-    return [for (final e in scored) e.$3];
+  /// Opens the selected homepage collection with the remaining filters reset.
+  void showGroup(CourseGroup group) {
+    _showCriteria(FilterCriteria(group: group));
   }
 
-  Future<void> _fetch(int page) async {
-    if (_searchQuery.isEmpty) {
-      final result = await _load(page, ApiConfig.defaultPageSize);
-      _courses
-        ..clear()
-        ..addAll(result.items);
-      _page = result.page;
-      _total = result.total;
-      _totalPages = result.totalPages < 1 ? 1 : result.totalPages;
-      return;
-    }
+  void showTopRated() {
+    _showCriteria(FilterCriteria(minRating: 4.0, sort: 'rating'));
+  }
 
-    // Có từ khóa: tải các trang của server (tối đa 5 x 50 khóa), lọc lại rồi
-    // tự chia trang để số lượng và số trang khớp với những gì hiển thị.
-    final f = _filterCriteria;
-    final key =
-        '$_searchQuery|$_categoryId|${f.level}|${f.onlyFree}|${f.minRating}|${f.sort}';
-    if (_matchesKey != key) {
-      final all = <Course>[];
-      for (var p = 1; p <= 5; p++) {
-        final result = await _load(p, 50);
-        all.addAll(result.items);
-        if (!result.hasMore) break;
-      }
-      _matches = _relevant(all);
-      _matchesKey = key;
-    }
-    const size = ApiConfig.defaultPageSize;
-    _total = _matches.length;
-    _totalPages = _total == 0 ? 1 : (_total / size).ceil();
-    _page = page.clamp(1, _totalPages);
-    _courses
-      ..clear()
-      ..addAll(_matches.skip((_page - 1) * size).take(size));
+  void showSort(String sort) {
+    assert(sort == 'newest' || sort == 'popular');
+    _showCriteria(FilterCriteria(sort: sort));
+  }
+
+  void _showCriteria(FilterCriteria criteria) {
+    _debounce?.cancel();
+    _searchController.clear();
+    setState(() {
+      _searchQuery = '';
+      _categoryId = null;
+      _filterCriteria = criteria;
+    });
+    _loadSuggestions('');
+    _search();
   }
 
   /// Tìm lại từ trang 1 (đổi từ khóa, bộ lọc, sắp xếp, hoặc bấm "Thử lại")
@@ -198,14 +228,40 @@ class _ExploreScreenState extends State<ExploreScreen> {
   /// Chuyển sang trang [page] (10 khóa mỗi trang) rồi cuộn lên đầu danh sách
   Future<void> _goToPage(int page) async {
     final id = ++_requestId;
+    final query = _searchQuery;
+    final categoryId = _categoryId;
+    final criteria = _filterCriteria.clone();
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      await _fetch(page);
+      var result = await _load(
+        page: page,
+        query: query,
+        categoryId: categoryId,
+        criteria: criteria,
+      );
       if (!mounted || id != _requestId) return;
-      setState(() => _loading = false);
+      final lastPage = result.totalPages < 1 ? 1 : result.totalPages;
+      if (page > lastPage) {
+        result = await _load(
+          page: lastPage,
+          query: query,
+          categoryId: categoryId,
+          criteria: criteria,
+        );
+        if (!mounted || id != _requestId) return;
+      }
+      setState(() {
+        _courses
+          ..clear()
+          ..addAll(result.items);
+        _page = result.page;
+        _total = result.total;
+        _totalPages = result.totalPages < 1 ? 1 : result.totalPages;
+        _loading = false;
+      });
       if (_scrollController.hasClients) _scrollController.jumpTo(0);
     } catch (e) {
       if (!mounted || id != _requestId) return;
@@ -227,7 +283,11 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 
   void _onQueryChanged(String value) {
-    setState(() => _searchQuery = value.trim());
+    ++_requestId;
+    setState(() {
+      _searchQuery = value.trim();
+      _loading = true;
+    });
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 400), () {
       _loadSuggestions(_searchQuery);
@@ -452,6 +512,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
                     child: Text(
                       _loading
                           ? 'Đang tìm kiếm...'
+                          : _error != null
+                          ? 'Không tải được số lượng khóa học'
                           : 'Tìm thấy $_total khóa học phù hợp (trang $_page/$_totalPages)',
                       style: AppTypography.labelSmall.copyWith(
                         color: AppColors.textSecondary,
@@ -476,6 +538,15 @@ class _ExploreScreenState extends State<ExploreScreen> {
               ),
             ),
             const SizedBox(height: 12.0),
+
+            if (_filterCriteria.group == CourseGroup.bestSellers)
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: AppDimens.p16),
+                child: Text(
+                  'Danh sách bán chạy từ trang chủ',
+                  style: TextStyle(color: AppColors.textSecondary),
+                ),
+              ),
 
             // 4. Danh sách khóa học hoặc Trạng thái rỗng
             Expanded(

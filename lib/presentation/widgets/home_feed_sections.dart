@@ -8,7 +8,11 @@ import '../../data/models/course.dart';
 import '../../data/models/home_feed.dart';
 import 'course_card.dart';
 
-Widget homeSectionHeader(String title, String subtitle, {VoidCallback? onSeeAll}) {
+Widget homeSectionHeader(
+  String title,
+  String subtitle, {
+  VoidCallback? onSeeAll,
+}) {
   return Padding(
     padding: const EdgeInsets.symmetric(horizontal: AppDimens.p16),
     child: Row(
@@ -125,8 +129,10 @@ class _ContinueCard extends StatelessWidget {
                 fit: BoxFit.cover,
                 errorBuilder: (_, _, _) => const ColoredBox(
                   color: AppColors.primaryLight,
-                  child: Icon(Icons.play_circle_fill_rounded,
-                      color: AppColors.primary),
+                  child: Icon(
+                    Icons.play_circle_fill_rounded,
+                    color: AppColors.primary,
+                  ),
                 ),
               ),
             ),
@@ -185,7 +191,7 @@ class _ContinueCard extends StatelessWidget {
 }
 
 /// Mục khóa học cuộn ngang (bán chạy, vì bạn đã học, đánh giá cao, mới ra mắt,
-/// yêu thích, đã xem gần đây). Nhãn và ghi chú server gắn hiện dưới thẻ.
+/// yêu thích, đã xem gần đây). Nhãn nằm trên ảnh, ghi chú nằm dưới thẻ.
 class HomeCourseRail extends StatelessWidget {
   final HomeSection section;
   final ValueChanged<Course> onTap;
@@ -200,9 +206,7 @@ class HomeCourseRail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasNote = section.courses.any(
-      (c) => (c.note ?? '').isNotEmpty || (c.badge ?? '').isNotEmpty,
-    );
+    final hasNote = section.courses.any((c) => (c.note ?? '').isNotEmpty);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -224,6 +228,7 @@ class HomeCourseRail extends StatelessWidget {
                     height: 310,
                     child: CourseCard(
                       course: item.course,
+                      badges: [if (item.badge != null) item.badge!],
                       onTap: () => onTap(item.course),
                     ),
                   ),
@@ -245,7 +250,6 @@ class _NoteRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final badge = item.badge ?? '';
     final note = item.note ?? '';
     return Padding(
       padding: const EdgeInsets.only(top: 6),
@@ -253,22 +257,6 @@ class _NoteRow extends StatelessWidget {
         width: 260,
         child: Row(
           children: [
-            if (badge.isNotEmpty)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                decoration: BoxDecoration(
-                  color: AppColors.warningLight,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  badge,
-                  style: AppTypography.captionTiny.copyWith(
-                    color: AppColors.warning,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-            if (badge.isNotEmpty && note.isNotEmpty) const SizedBox(width: 6),
             if (note.isNotEmpty)
               Expanded(
                 child: Text(
