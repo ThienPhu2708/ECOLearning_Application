@@ -426,7 +426,10 @@ class _LearningCourseCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final progress = course.progress.isFinite
+    // Match the web's certified card even if new lessons lower the API percentage.
+    final progress = completed && course.hasCertificate
+        ? 100.0
+        : course.progress.isFinite
         ? course.progress.clamp(0, 100).toDouble()
         : 0.0;
     final tint = completed ? AppColors.success : AppColors.primary;

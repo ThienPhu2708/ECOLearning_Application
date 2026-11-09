@@ -15,7 +15,7 @@ class Owned extends LearningRepository {
     'id': 'c',
     'title': 'C#',
     'hasCertificate': true,
-    'progress': 100,
+    'progress': 50,
     'myReview': {'rating': 4, 'comment': 'Hữu ích'},
   });
   @override
@@ -115,6 +115,8 @@ void main() {
     (tester) async {
       final quiz = Quiz();
       await open(tester, quiz);
+      expect(find.text('100%'), findsOneWidget);
+      expect(find.text('50%'), findsNothing);
       expect(find.text('Xem lại bài học'), findsNothing);
       expect(find.text('Xem chứng chỉ'), findsOneWidget);
       await tester.ensureVisible(find.text('Xem chứng chỉ'));
