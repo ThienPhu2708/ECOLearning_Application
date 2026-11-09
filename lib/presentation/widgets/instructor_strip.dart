@@ -25,8 +25,9 @@ class InstructorEntry {
       reps.putIfAbsent(name, () => c);
       counts[name] = (counts[name] ?? 0) + 1;
     }
-    return [for (final e in reps.entries) InstructorEntry(e.value, counts[e.key]!)]
-      ..sort((a, b) => b.courseCount.compareTo(a.courseCount));
+    return [
+      for (final e in reps.entries) InstructorEntry(e.value, counts[e.key]!),
+    ]..sort((a, b) => b.courseCount.compareTo(a.courseCount));
   }
 }
 
@@ -47,6 +48,7 @@ class InstructorStrip extends StatelessWidget {
         separatorBuilder: (_, _) => const SizedBox(width: AppDimens.p12),
         itemBuilder: (context, i) {
           final entry = instructors[i];
+          final avatarUrl = entry.course.instructorAvatar.trim();
           return InkWell(
             borderRadius: BorderRadius.circular(12),
             onTap: () => Navigator.of(context).push(
@@ -61,11 +63,16 @@ class InstructorStrip extends StatelessWidget {
                   CircleAvatar(
                     radius: 28,
                     backgroundColor: AppColors.primaryLight,
-                    backgroundImage: entry.course.instructorAvatar.isEmpty
+                    foregroundImage: avatarUrl.isEmpty
                         ? null
-                        : NetworkImage(entry.course.instructorAvatar),
-                    onBackgroundImageError: (_, _) {},
-                    child: const Icon(Icons.person_rounded, color: AppColors.primary),
+                        : NetworkImage(avatarUrl),
+                    onForegroundImageError: avatarUrl.isEmpty
+                        ? null
+                        : (_, _) {},
+                    child: const Icon(
+                      Icons.person_rounded,
+                      color: AppColors.primary,
+                    ),
                   ),
                   const SizedBox(height: 6),
                   Text(
@@ -80,7 +87,9 @@ class InstructorStrip extends StatelessWidget {
                   Text(
                     '${entry.courseCount} khóa học',
                     maxLines: 1,
-                    style: AppTypography.captionTiny.copyWith(color: AppColors.textSecondary),
+                    style: AppTypography.captionTiny.copyWith(
+                      color: AppColors.textSecondary,
+                    ),
                   ),
                 ],
               ),

@@ -146,7 +146,7 @@ class MyCoursesScreenState extends State<MyCoursesScreen>
   }
 
   Future<void> _openReview(Course course) async {
-    if (_openingId != null || _reviewOpen || !course.hasCertificate) return;
+    if (_openingId != null || _reviewOpen) return;
     _reviewOpen = true;
     try {
       final scope = LearningDataScope.read(context);
@@ -347,7 +347,7 @@ class MyCoursesScreenState extends State<MyCoursesScreen>
                             repository: widget.quizRepository,
                           ),
                         ),
-                  onReview: _openingId != null
+                  onReview: !completed || _openingId != null
                       ? null
                       : () => _openReview(course),
                 );
@@ -644,7 +644,7 @@ class _LearningCourseCard extends StatelessWidget {
                               ? 'Chờ giáo viên xem xét kết quả quiz'
                               : course.quizRetakeRequired
                               ? 'Giáo viên yêu cầu làm lại quiz'
-                              : 'Hoàn thành quiz để nhận chứng chỉ.',
+                              : 'Kiểm tra điều kiện nhận chứng chỉ của khóa học.',
                           style: AppTypography.labelSmall.copyWith(
                             fontWeight: FontWeight.w400,
                             height: 1.5,
@@ -770,6 +770,18 @@ class _LearningCourseCard extends StatelessWidget {
                     onPressed: completed ? onQuiz : onLearn,
                   ),
                   if (completed) ...[
+                    const SizedBox(height: 8),
+                    AppButton(
+                      text: 'Đánh giá khóa học',
+                      type: AppButtonType.secondary,
+                      onPressed: onReview,
+                    ),
+                    const SizedBox(height: 8),
+                    AppButton(
+                      text: 'Kiểm tra chứng chỉ',
+                      type: AppButtonType.secondary,
+                      onPressed: opening ? null : onCertificate,
+                    ),
                     const SizedBox(height: 8),
                     AppButton(
                       text: 'Xem lại bài học',

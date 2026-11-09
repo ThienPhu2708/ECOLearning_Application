@@ -8,12 +8,11 @@ class WebCertificateCanvas extends StatelessWidget {
   final Map<String, dynamic> certificate;
   const WebCertificateCanvas({super.key, required this.certificate});
   static String issuedDate(dynamic value) {
-    // Preserve the issuance date supplied by the server, rather than shifting it
-    // into the device's time zone and showing a different date from the web.
-    final match = RegExp(
-      r'^(\d{4})-(\d{2})-(\d{2})',
-    ).firstMatch(JsonUtils.asString(value));
-    return match == null ? '—' : '${match[3]}/${match[2]}/${match[1]}';
+    final date = DateTime.tryParse(JsonUtils.asString(value))?.toLocal();
+    if (date == null) return '—';
+    final day = date.day.toString().padLeft(2, '0');
+    final month = date.month.toString().padLeft(2, '0');
+    return '$day/$month/${date.year}';
   }
 
   @override

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../learning_support/learning_data_scope.dart';
 import 'package:flutter/services.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/network/api_exception.dart';
 import '../../../core/utils/json_utils.dart';
 import 'web_certificate_canvas.dart';
 import '../../../data/models/course.dart';
@@ -11,14 +12,18 @@ import '../../widgets/state_views.dart';
 
 class CertificateScreen extends StatefulWidget {
   final Course? course;
+  final String? courseId;
+  final bool? quizAvailable;
   final Map<String, dynamic>? certificate;
   final QuizRepository? repository;
   const CertificateScreen({
     super.key,
     this.course,
+    this.courseId,
+    this.quizAvailable,
     this.certificate,
     this.repository,
-  }) : assert(course != null || certificate != null);
+  }) : assert(course != null || courseId != null || certificate != null);
   @override
   State<CertificateScreen> createState() => _CertificateScreenState();
 }
@@ -44,7 +49,7 @@ class _CertificateScreenState extends State<CertificateScreen> {
           await (widget.repository ??
                   LearningDataScope.read(context)?.quiz ??
                   QuizRepository())
-              .certificate(widget.course!.id);
+              .certificate(widget.courseId ?? widget.course!.id);
       if (mounted) setState(() => _data = data);
     } catch (e) {
       if (mounted) setState(() => _error = e);
@@ -84,13 +89,37 @@ class _CertificateScreenState extends State<CertificateScreen> {
   Widget build(BuildContext context) {
     final data = _data ?? {};
     final code = JsonUtils.asString(data['code']);
+    final error = _error;
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(title: const Text('Chứng chỉ khóa học')),
       body: _loading
           ? const LoadingView()
-          : _error != null
-          ? ErrorView(error: _error, onRetry: _load)
+          : error is ApiException &&
+                error.isNotFound &&
+                error.code == 'CERTIFICATE_NOT_FOUND'
+          ? EmptyView(
+              icon: Icons.verified_outlined,
+              title: 'Chưa có chứng chỉ',
+              message: switch (widget.quizAvailable) {
+                true => 'Xem trạng thái Quiz cuối khóa để biết bước tiếp theo.',
+                false =>
+                  'Hệ thống chưa xác nhận đủ điều kiện cấp chứng chỉ. '
+                      'Bạn có thể kiểm tra lại tiến độ và trạng thái khóa học.',
+                null => 'Kiểm tra tiến độ học và yêu cầu của khóa học.',
+              },
+              actionText: 'Kiểm tra lại',
+              onAction: _load,
+            )
+          : error != null
+          ? ErrorView(
+              error: error,
+              onRetry:
+                  error is ApiException &&
+                      (error.isUnauthorized || error.isForbidden)
+                  ? null
+                  : _load,
+            )
           : ListView(
               padding: const EdgeInsets.all(20),
               children: [
