@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>ECOLearning</string>
+	<string>E-Learning</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -46,8 +46,8 @@
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Chọn ảnh từ thư viện để làm ảnh đại diện.</string>
+	<string>Chọn ảnh từ thư viện để làm ảnh đại diện hoặc gửi trong tin nhắn.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Chụp ảnh để làm ảnh đại diện.</string>
+	<string>Chụp ảnh để làm ảnh đại diện hoặc gửi trong tin nhắn.</string>
 </dict>
 </plist>

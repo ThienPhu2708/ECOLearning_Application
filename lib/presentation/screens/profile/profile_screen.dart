@@ -1,198 +1,190 @@
+import 'my_reviews_screen.dart';
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_dimens.dart';
 import '../../../core/constants/app_typography.dart';
-import '../../../data/mock_data.dart';
-import '../../widgets/app_button.dart';
+import '../../session/current_user.dart';
+import '../../providers/auth_provider.dart';
+import 'package:provider/provider.dart';
+import '../../widgets/state_views.dart';
+import '../../../data/models/user.dart';
+import 'edit_profile_sheet.dart';
+import 'profile_avatar.dart';
+import 'study_reminder_tile.dart';
+import 'help_terms_screen.dart';
 import 'logout_dialog.dart';
+import '../chatbot/chatbot_screen.dart';
+import 'change_password_sheet.dart';
+import '../../../data/repositories/profile_repository.dart';
+import '../orders/order_history_screen.dart';
+import '../favorites/favorites_screen.dart';
+import '../coupons/coupon_wallet_screen.dart';
+import '../my_courses/certificates_screen.dart';
+import '../my_courses/my_courses_screen.dart';
+import '../learning_support/learning_data_scope.dart';
+import '../../../data/repositories/quiz_repository.dart';
 
 /// Tab 4: Hồ sơ cá nhân và cài đặt theo QuyChuanThietKe_App.md Mục 4.8, UC2 & UC3
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+  final bool isActive;
+  final ValueChanged<int>? onOpenCourses;
+  final User? user;
+  final QuizRepository? repository;
+  const ProfileScreen({
+    super.key,
+    this.isActive = true,
+    this.onOpenCourses,
+    this.user,
+    this.repository,
+  });
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  bool _notificationsEnabled = true;
-  bool _darkModeEnabled = false;
+  late final QuizRepository _quiz =
+      widget.repository ??
+      LearningDataScope.read(context)?.quiz ??
+      QuizRepository();
+  int? _certificateCount;
+  int _certificateRequest = 0;
 
-  void _showEditProfileSheet() {
-    final nameCtrl = TextEditingController(text: MockData.currentUser.fullName);
-    final phoneCtrl = TextEditingController(text: MockData.currentUser.phone);
+  @override
+  void initState() {
+    super.initState();
+    _loadCertificateCount();
+  }
 
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-        return Container(
-          padding: EdgeInsets.only(
-            top: AppDimens.p24,
-            left: AppDimens.p24,
-            right: AppDimens.p24,
-            bottom: AppDimens.p24 + bottomInset,
-          ),
-          decoration: const BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: AppDimens.radiusSheet,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Chỉnh sửa thông tin cá nhân',
-                style: AppTypography.titleMedium.copyWith(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 18.0,
-                ),
-              ),
-              const SizedBox(height: 16.0),
-              Text(
-                'Họ và tên',
-                style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 6.0),
-              TextField(
-                controller: nameCtrl,
-                decoration: const InputDecoration(hintText: 'Nhập họ tên...'),
-              ),
-              const SizedBox(height: 12.0),
-              Text(
-                'Số điện thoại',
-                style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 6.0),
-              TextField(
-                controller: phoneCtrl,
-                decoration: const InputDecoration(hintText: 'Nhập số điện thoại...'),
-              ),
-              const SizedBox(height: 20.0),
-              AppButton(
-                text: 'Lưu thay đổi',
-                onPressed: () {
-                  setState(() {
-                    MockData.currentUser.fullName = nameCtrl.text.trim();
-                    MockData.currentUser.phone = phoneCtrl.text.trim();
-                  });
-                  Navigator.of(context).pop();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Đã cập nhật thông tin thành công!'),
-                      backgroundColor: AppColors.success,
-                    ),
-                  );
-                },
-              ),
-            ],
-          ),
-        );
-      },
+  @override
+  void didUpdateWidget(covariant ProfileScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive && !oldWidget.isActive) _loadCertificateCount();
+  }
+
+  Future<void> _loadCertificateCount() async {
+    final request = ++_certificateRequest;
+    try {
+      final certificates = await _quiz.certificates();
+      if (mounted && request == _certificateRequest) {
+        setState(() => _certificateCount = certificates.length);
+      }
+    } catch (_) {
+      if (mounted && request == _certificateRequest) {
+        setState(() => _certificateCount = null);
+      }
+    }
+  }
+
+  Future<void> _openCourses(int tab) async {
+    final navigate = widget.onOpenCourses;
+    if (navigate != null) {
+      navigate(tab);
+      return;
+    }
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          appBar: AppBar(title: const Text('Khóa học của tôi')),
+          body: MyCoursesScreen(initialTabIndex: tab),
+        ),
+      ),
     );
   }
 
-  void _showChangePasswordDialog() {
-    final oldPass = TextEditingController();
-    final newPass = TextEditingController();
+  Future<void> _openCertificates() async {
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(builder: (_) => CertificatesScreen(repository: _quiz)),
+    );
+    if (mounted) await _loadCertificateCount();
+  }
 
-    showDialog(
+  bool _darkModeEnabled = false;
+
+  Future<void> _showEditProfileSheet() async {
+    final user = widget.user ?? currentUser(context);
+    if (user == null) return;
+    final updated = await showModalBottomSheet<User>(
       context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: AppDimens.radiusCard),
-        title: const Text('Đổi mật khẩu'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: oldPass,
-              obscureText: true,
-              decoration: const InputDecoration(hintText: 'Mật khẩu hiện tại'),
-            ),
-            const SizedBox(height: 12.0),
-            TextField(
-              controller: newPass,
-              obscureText: true,
-              decoration: const InputDecoration(hintText: 'Mật khẩu mới (tối thiểu 8 ký tự)'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Hủy'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
-            onPressed: () {
-              if (newPass.text.length < 8) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Mật khẩu mới phải có tối thiểu 8 ký tự!'),
-                    backgroundColor: AppColors.error,
-                  ),
-                );
-                return;
-              }
-              Navigator.of(context).pop();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Đổi mật khẩu thành công!'),
-                  backgroundColor: AppColors.success,
-                ),
-              );
-            },
-            child: const Text('Đổi mật khẩu'),
-          ),
-        ],
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => EditProfileSheet(
+        user: user,
+        onSave: (name, phone, gender, birthDate) async {
+          return ProfileRepository().updateMe(
+            fullName: name,
+            phone: phone,
+            gender: gender,
+            birthDate: birthDate,
+          );
+        },
       ),
     );
+    if (updated == null || !mounted) return;
+    context.read<AuthProvider>().updateUser(updated);
+    setState(() {
+      final current = user;
+      current.fullName = updated.fullName;
+      current.phone = updated.phone;
+      current.gender = updated.gender;
+      current.birthDate = updated.birthDate;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Đã cập nhật thông tin cá nhân.'),
+        backgroundColor: AppColors.success,
+      ),
+    );
+  }
+
+  Future<void> _showChangePasswordDialog() async {
+    final changed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ChangePasswordSheet(
+        onSubmit: (current, next) => ProfileRepository().changePassword(
+          currentPassword: current,
+          newPassword: next,
+        ),
+      ),
+    );
+    if (changed == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Đã đổi mật khẩu thành công.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    }
   }
 
   void _showOrderHistory() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: AppDimens.radiusCard),
-        title: const Text('Lịch sử đơn hàng'),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: ListView(
-            shrinkWrap: true,
-            children: [
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.receipt_long_rounded, color: AppColors.primary),
-                title: const Text('Đơn #ORD-2026-8891'),
-                subtitle: const Text('02 khóa học • 1.698.000 đ\n10/01/2026 - Thành công'),
-                isThreeLine: true,
-              ),
-              const Divider(),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.receipt_long_rounded, color: AppColors.primary),
-                title: const Text('Đơn #ORD-2025-4412'),
-                subtitle: const Text('01 khóa học • 849.000 đ\n15/12/2025 - Thành công'),
-                isThreeLine: true,
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Đóng'),
-          ),
-        ],
-      ),
+    Navigator.push(
+      context,
+      MaterialPageRoute<void>(builder: (_) => const OrderHistoryScreen()),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final user = MockData.currentUser;
+    final user = widget.user ?? currentUser(context, listen: true);
+    if (user == null) {
+      return ErrorView(
+        error: 'Chưa tải được thông tin tài khoản.',
+        onRetry: () async {
+          try {
+            await context.read<AuthProvider>().refreshUser();
+          } catch (e) {
+            if (context.mounted) showErrorSnackBar(context, e);
+          }
+        },
+      );
+    }
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -213,29 +205,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
                 child: Column(
                   children: [
-                    Stack(
-                      children: [
-                        CircleAvatar(
-                          radius: 46.0,
-                          backgroundImage: NetworkImage(user.avatarUrl),
-                        ),
-                        Positioned(
-                          bottom: 0,
-                          right: 0,
-                          child: Container(
-                            padding: const EdgeInsets.all(6.0),
-                            decoration: const BoxDecoration(
-                              color: AppColors.primary,
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.camera_alt_rounded,
-                              size: 16.0,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ],
+                    ProfileAvatar(
+                      user: user,
+                      upload: (path) async {
+                        final auth = context.read<AuthProvider>();
+                        final accountId = user.id;
+                        final updated = await ProfileRepository()
+                            .uploadAvatarAndReload(path);
+                        if (!mounted || auth.user?.id != accountId) {
+                          throw StateError(
+                            'Account changed during avatar upload',
+                          );
+                        }
+                        auth.updateUser(updated);
+                        return updated.avatarUrl;
+                      },
                     ),
                     const SizedBox(height: 12.0),
 
@@ -255,30 +239,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     const SizedBox(height: 8.0),
 
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.0),
-                      decoration: BoxDecoration(
-                        color: AppColors.primaryLight,
-                        borderRadius: BorderRadius.circular(999.0),
-                      ),
-                      child: Text(
-                        '🎓 VAI TRÒ: ${user.role.toUpperCase()}',
-                        style: AppTypography.captionTiny.copyWith(
-                          color: AppColors.primary,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
                     const SizedBox(height: 20.0),
 
                     // Thống kê nhanh
                     Row(
                       children: [
-                        _buildStatItem('Đang học', '2'),
+                        _buildStatItem(
+                          'Đang học',
+                          user.inProgressCoursesCount.toString(),
+                          onTap: () => _openCourses(0),
+                        ),
                         _buildStatDivider(),
-                        _buildStatItem('Hoàn thành', '1'),
+                        _buildStatItem(
+                          'Hoàn thành',
+                          user.completedCoursesCount.toString(),
+                          onTap: () => _openCourses(1),
+                        ),
                         _buildStatStatDivider(),
-                        _buildStatItem('Chứng chỉ', '1'),
+                        _buildStatItem(
+                          'Chứng chỉ',
+                          _certificateCount?.toString() ?? '—',
+                          onTap: _openCertificates,
+                        ),
                       ],
                     ),
                   ],
@@ -314,69 +296,103 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       onTap: _showOrderHistory,
                     ),
                     const Divider(),
-                    SwitchListTile(
-                      secondary: Container(
-                        padding: const EdgeInsets.all(8.0),
-                        decoration: BoxDecoration(
-                          color: AppColors.surfaceSubtle,
-                          borderRadius: BorderRadius.circular(8.0),
-                        ),
-                        child: const Icon(
-                          Icons.notifications_outlined,
-                          color: AppColors.primary,
-                          size: 20,
+                    _buildSettingsTile(
+                      Icons.local_offer_outlined,
+                      'Mã giảm giá của tôi',
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => const CouponWalletScreen(),
                         ),
                       ),
-                      title: Text(
-                        'Thông báo học tập',
-                        style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.w600),
-                      ),
-                      value: _notificationsEnabled,
-                      activeTrackColor: AppColors.primary,
-                      onChanged: (val) {
-                        setState(() => _notificationsEnabled = val);
-                      },
                     ),
                     const Divider(),
-                    SwitchListTile(
-                      secondary: Container(
-                        padding: const EdgeInsets.all(8.0),
-                        decoration: BoxDecoration(
-                          color: AppColors.surfaceSubtle,
-                          borderRadius: BorderRadius.circular(8.0),
-                        ),
-                        child: const Icon(
-                          Icons.dark_mode_outlined,
-                          color: AppColors.primary,
-                          size: 20,
-                        ),
-                      ),
-                      title: Text(
-                        'Chế độ giao diện tối (Dark Mode)',
-                        style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.w600),
-                      ),
-                      value: _darkModeEnabled,
-                      activeTrackColor: AppColors.primary,
-                      onChanged: (val) {
-                        setState(() => _darkModeEnabled = val);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Tính năng Dark mode đang được đồng bộ cho phiên bản tiếp theo.'),
+                    const StudyReminderTile(),
+                    const Divider(),
+                    Material(
+                      color: Colors.transparent,
+                      child: SwitchListTile(
+                        secondary: Container(
+                          padding: const EdgeInsets.all(8.0),
+                          decoration: BoxDecoration(
+                            color: AppColors.surfaceSubtle,
+                            borderRadius: BorderRadius.circular(8.0),
                           ),
-                        );
-                      },
+                          child: const Icon(
+                            Icons.dark_mode_outlined,
+                            color: AppColors.primary,
+                            size: 20,
+                          ),
+                        ),
+                        title: Text(
+                          'Chế độ giao diện tối (Dark Mode)',
+                          style: AppTypography.bodyMedium.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        value: _darkModeEnabled,
+                        activeTrackColor: AppColors.primary,
+                        onChanged: (val) {
+                          setState(() => _darkModeEnabled = val);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Tính năng Dark mode đang được đồng bộ cho phiên bản tiếp theo.',
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    const Divider(),
+                    _buildSettingsTile(
+                      Icons.rate_review_outlined,
+                      'Đánh giá của tôi',
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const MyReviewsScreen(),
+                        ),
+                      ),
+                    ),
+                    const Divider(),
+                    _buildSettingsTile(
+                      Icons.workspace_premium_outlined,
+                      'Chứng chỉ của tôi',
+                      onTap: _openCertificates,
+                    ),
+                    const Divider(),
+                    _buildSettingsTile(
+                      Icons.favorite_border_rounded,
+                      'Khóa học yêu thích',
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => const FavoritesScreen(),
+                        ),
+                      ),
+                    ),
+                    const Divider(),
+                    _buildSettingsTile(
+                      Icons.smart_toy_outlined,
+                      'Trợ lý Elearning',
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => const ChatbotScreen(),
+                        ),
+                      ),
                     ),
                     const Divider(),
                     _buildSettingsTile(
                       Icons.help_outline_rounded,
                       'Trợ giúp & Điều khoản sử dụng',
-                      onTap: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Hệ sinh thái E-Learning Học viên v1.0 - KLTN Tuần 04'),
-                          ),
-                        );
-                      },
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => const HelpTermsScreen(),
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -390,32 +406,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   borderRadius: AppDimens.radiusCard,
                   border: Border.all(color: AppColors.border),
                 ),
-                child: ListTile(
-                  leading: Container(
-                    padding: const EdgeInsets.all(8.0),
-                    decoration: const BoxDecoration(
-                      color: AppColors.errorLight,
-                      shape: BoxShape.circle,
+                child: Material(
+                  color: Colors.transparent,
+                  child: ListTile(
+                    leading: Container(
+                      padding: const EdgeInsets.all(8.0),
+                      decoration: const BoxDecoration(
+                        color: AppColors.errorLight,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.logout_rounded,
+                        color: AppColors.error,
+                        size: 20,
+                      ),
                     ),
-                    child: const Icon(
-                      Icons.logout_rounded,
+                    title: Text(
+                      'Đăng xuất tài khoản',
+                      style: AppTypography.bodyMedium.copyWith(
+                        color: AppColors.error,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    trailing: const Icon(
+                      Icons.arrow_forward_ios_rounded,
+                      size: 14,
                       color: AppColors.error,
-                      size: 20,
                     ),
+                    onTap: () => LogoutDialog.show(context),
                   ),
-                  title: Text(
-                    'Đăng xuất tài khoản',
-                    style: AppTypography.bodyMedium.copyWith(
-                      color: AppColors.error,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  trailing: const Icon(
-                    Icons.arrow_forward_ios_rounded,
-                    size: 14,
-                    color: AppColors.error,
-                  ),
-                  onTap: () => LogoutDialog.show(context),
                 ),
               ),
               const SizedBox(height: 20.0),
@@ -426,44 +445,50 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildStatItem(String label, String value) {
+  Widget _buildStatItem(
+    String label,
+    String value, {
+    required VoidCallback onTap,
+  }) {
     return Expanded(
-      child: Column(
-        children: [
-          Text(
-            value,
-            style: AppTypography.headlineMedium.copyWith(
-              color: AppColors.primary,
-              fontWeight: FontWeight.w800,
-              fontSize: 20.0,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Column(
+              children: [
+                Text(
+                  value,
+                  style: AppTypography.headlineMedium.copyWith(
+                    color: AppColors.primary,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 20.0,
+                  ),
+                ),
+                const SizedBox(height: 2.0),
+                Text(
+                  label,
+                  style: AppTypography.captionTiny.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 2.0),
-          Text(
-            label,
-            style: AppTypography.captionTiny.copyWith(
-              color: AppColors.textSecondary,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
 
   Widget _buildStatDivider() {
-    return Container(
-      height: 28.0,
-      width: 1.0,
-      color: AppColors.border,
-    );
+    return Container(height: 28.0, width: 1.0, color: AppColors.border);
   }
 
   Widget _buildStatStatDivider() {
-    return Container(
-      height: 28.0,
-      width: 1.0,
-      color: AppColors.border,
-    );
+    return Container(height: 28.0, width: 1.0, color: AppColors.border);
   }
 
   Widget _buildSettingsTile(
@@ -471,25 +496,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
     String title, {
     required VoidCallback onTap,
   }) {
-    return ListTile(
-      leading: Container(
-        padding: const EdgeInsets.all(8.0),
-        decoration: BoxDecoration(
-          color: AppColors.surfaceSubtle,
-          borderRadius: BorderRadius.circular(8.0),
+    return Material(
+      color: Colors.transparent,
+      child: ListTile(
+        leading: Container(
+          padding: const EdgeInsets.all(8.0),
+          decoration: BoxDecoration(
+            color: AppColors.surfaceSubtle,
+            borderRadius: BorderRadius.circular(8.0),
+          ),
+          child: Icon(icon, color: AppColors.primary, size: 20),
         ),
-        child: Icon(icon, color: AppColors.primary, size: 20),
+        title: Text(
+          title,
+          style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.w600),
+        ),
+        trailing: const Icon(
+          Icons.arrow_forward_ios_rounded,
+          size: 14,
+          color: AppColors.textMuted,
+        ),
+        onTap: onTap,
       ),
-      title: Text(
-        title,
-        style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.w600),
-      ),
-      trailing: const Icon(
-        Icons.arrow_forward_ios_rounded,
-        size: 14,
-        color: AppColors.textMuted,
-      ),
-      onTap: onTap,
     );
   }
 }

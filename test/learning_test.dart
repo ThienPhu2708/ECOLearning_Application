@@ -1,0 +1,449 @@
+import 'package:ecolearning_app/data/repositories/lesson_resources_repository.dart';
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:ecolearning_app/core/network/api_exception.dart';
+import 'package:ecolearning_app/data/models/course.dart';
+import 'package:ecolearning_app/data/models/lesson.dart';
+import 'package:ecolearning_app/data/repositories/learning_repository.dart';
+import 'package:ecolearning_app/presentation/screens/learning/learning_controller.dart';
+import 'package:ecolearning_app/presentation/screens/learning/learning_space_screen.dart';
+import 'package:ecolearning_app/presentation/screens/learning/rating_dialog.dart';
+
+Lesson makeLesson(String id, {bool completed = false}) => Lesson(
+  id: id,
+  title: 'Lesson $id',
+  duration: '01:40',
+  durationSeconds: 100,
+  isCompleted: completed,
+);
+LearningOverview makeOverview({
+  bool review = false,
+  bool empty = false,
+  String? current,
+}) => LearningOverview(
+  courseId: 'course',
+  title: 'Course',
+  progress: review ? 100 : 25,
+  currentLessonId: current,
+  chapters: empty
+      ? []
+      : [
+          Chapter(
+            id: 'chapter',
+            title: 'Chapter',
+            lessons: [makeLesson('a', completed: true), makeLesson('b')],
+          ),
+        ],
+  quizAvailable: true,
+  quizPassed: review,
+  certificateIssued: false,
+  canReview: review,
+);
+
+class FakeLearning extends LearningRepository {
+  Future<LearningOverview> Function() readOverview = () async => makeOverview();
+  Future<Lesson> Function(String) readLesson = (id) async => makeLesson(id);
+  Future<ProgressResult> Function(String, int, int) write =
+      (id, position, duration) async =>
+          const ProgressResult(lessonCompleted: false, courseProgress: 25);
+  final selected = <String>[];
+  final saved = <(String, int, int)>[];
+  @override
+  Future<LearningOverview> overview(String courseId) => readOverview();
+  @override
+  Future<Lesson> lesson(String courseId, String lessonId) {
+    selected.add(lessonId);
+    return readLesson(lessonId);
+  }
+
+  @override
+  Future<ProgressResult> saveProgress(
+    String courseId,
+    String lessonId, {
+    required int positionSeconds,
+    required int durationSeconds,
+  }) {
+    saved.add((lessonId, positionSeconds, durationSeconds));
+    return write(lessonId, positionSeconds, durationSeconds);
+  }
+}
+
+const offline = ApiException(message: 'Mất kết nối', code: 'NETWORK');
+
+class EmptyResources extends LessonResourcesRepository {
+  @override
+  Future<List<Map<String, dynamic>>> documents(
+    String course,
+    String lesson,
+  ) async => [];
+  @override
+  Future<List<Map<String, dynamic>>> notes(
+    String course,
+    String lesson,
+  ) async => [];
+}
+
+void main() {
+  setUpAll(() => GoogleFonts.config.allowRuntimeFetching = false);
+  test('certificate entry follows completion and existing issuance', () async {
+    final repo = FakeLearning();
+    final controller = LearningController(repo, 'course');
+    addTearDown(controller.dispose);
+    for (final (progress, published, issued, expected) in [
+      (75.0, false, false, false),
+      (100.0, false, false, true),
+      (100.0, true, false, false),
+      (100.0, true, true, true),
+    ]) {
+      repo.readOverview = () async => LearningOverview(
+        courseId: 'course',
+        title: 'Course',
+        progress: progress,
+        currentLessonId: null,
+        chapters: const [],
+        quizAvailable: published,
+        quizPassed: false,
+        certificateIssued: issued,
+        canReview: false,
+      );
+      await controller.refreshOverview();
+      expect(controller.canCheckCertificate, expected);
+    }
+  });
+
+  LearningOverview sequential({bool firstDone = false, String? resume}) =>
+      LearningOverview(
+        courseId: 'course',
+        title: 'Course',
+        progress: firstDone ? 33 : 0,
+        currentLessonId: resume,
+        chapters: [
+          Chapter(
+            id: 'one',
+            title: 'Chapter one',
+            lessons: [makeLesson('a', completed: firstDone)],
+          ),
+          Chapter(
+            id: 'two',
+            title: 'Chapter two',
+            lessons: [makeLesson('b'), makeLesson('c')],
+          ),
+        ],
+        quizAvailable: false,
+        quizPassed: false,
+        certificateIssued: false,
+        canReview: false,
+      );
+
+  test(
+    'locked resume falls back to first available lesson and locked selections never fetch video',
+    () async {
+      final repo = FakeLearning()
+        ..readOverview = (() async => sequential(resume: 'c'));
+      final controller = LearningController(repo, 'course');
+      await controller.load();
+      expect(controller.current?.id, 'a');
+      expect(controller.isUnlocked('a'), isTrue);
+      expect(controller.isUnlocked('b'), isFalse);
+      expect(
+        await controller.select(makeLesson('b', completed: true)),
+        isFalse,
+      );
+      expect(
+        await controller.select(makeLesson('unknown', completed: true)),
+        isFalse,
+      );
+      expect(repo.selected, ['a']);
+      controller.dispose();
+    },
+  );
+
+  test(
+    'next chapter unlocks only after server confirms completion, never from local eighty percent',
+    () async {
+      final repo = FakeLearning()..readOverview = (() async => sequential());
+      final controller = LearningController(repo, 'course');
+      await controller.load();
+      await controller.save('a', 95, 100);
+      expect(controller.isUnlocked('b'), isFalse);
+      repo.write = (_, position, duration) async =>
+          const ProgressResult(lessonCompleted: true, courseProgress: 33);
+      repo.readOverview = () async => sequential(firstDone: true);
+      await controller.save('a', 80, 100);
+      expect(controller.isUnlocked('b'), isTrue);
+      expect(controller.isUnlocked('c'), isFalse);
+      expect(await controller.select(makeLesson('b')), isTrue);
+      expect(controller.current?.id, 'b');
+      controller.dispose();
+    },
+  );
+
+  testWidgets(
+    'locked lesson shows lock and explanation without navigating to its video',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final repo = FakeLearning()..readOverview = (() async => sequential());
+      await tester.pumpWidget(
+        MaterialApp(
+          home: LearningSpaceScreen(
+            course: Course.fromJson({'id': 'course', 'title': 'Course'}),
+            repository: repo,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.lock_outline_rounded), findsNWidgets(2));
+      await tester.ensureVisible(find.text('Lesson b'));
+      await tester.tap(find.text('Lesson b'));
+      await tester.pumpAndSettle();
+      expect(repo.selected, ['a']);
+      expect(find.textContaining('Cần xem ít nhất 80%'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  test('resume uses server lesson, or first unfinished when absent', () async {
+    final repo = FakeLearning();
+    final c = LearningController(repo, 'course');
+    await c.load();
+    expect(c.current!.id, 'b');
+    repo.readOverview = () async => makeOverview(current: 'a');
+    await c.load();
+    expect(c.current!.id, 'a');
+    c.dispose();
+  });
+  test('empty course and failed load are recoverable', () async {
+    final repo = FakeLearning()..readOverview = (() async => throw offline);
+    final c = LearningController(repo, 'course');
+    await c.load();
+    expect(c.error, offline);
+    repo.readOverview = () async => makeOverview(empty: true);
+    await c.load();
+    expect(c.error, isNull);
+    expect(c.current, isNull);
+    expect(c.chapters, isEmpty);
+    c.dispose();
+  });
+  test(
+    'failed lesson switch retains previous lesson and prevents overlapping switches',
+    () async {
+      final repo = FakeLearning();
+      final c = LearningController(repo, 'course');
+      await c.load();
+      final pending = Completer<Lesson>();
+      repo.readLesson = (_) => pending.future;
+      final change = c.select(makeLesson('a'));
+      expect(await c.select(makeLesson('b')), false);
+      pending.completeError(offline);
+      expect(await change, false);
+      expect(c.current!.id, 'b');
+      c.dispose();
+    },
+  );
+  test(
+    'watching beyond eighty percent does not locally complete lessons or unlock review',
+    () async {
+      final c = LearningController(FakeLearning(), 'course');
+      await c.load();
+      await c.save('b', 95, 100);
+      expect(c.chapters.first.lessons.last.isCompleted, false);
+      expect(c.canReview, false);
+      c.dispose();
+    },
+  );
+  test(
+    'review requires completion and server permission regardless of quiz result',
+    () async {
+      for (final (progress, quizPassed, canReview) in [
+        (50.0, true, true),
+        (100.0, false, true),
+        (100.0, true, true),
+        (100.0, false, false),
+      ]) {
+        final repo = FakeLearning()
+          ..readOverview = (() async => LearningOverview(
+            courseId: 'course',
+            title: 'Course',
+            progress: progress,
+            currentLessonId: 'a',
+            chapters: makeOverview().chapters,
+            quizAvailable: true,
+            quizPassed: quizPassed,
+            certificateIssued: false,
+            canReview: canReview,
+          ));
+        final controller = LearningController(repo, 'course');
+        await controller.load();
+        expect(controller.canReview, progress == 100 && canReview);
+        controller.dispose();
+      }
+    },
+  );
+  test(
+    'threshold save reads authoritative progress even when response completion lags',
+    () async {
+      final repo = FakeLearning();
+      final c = LearningController(repo, 'course');
+      await c.load();
+      repo.write = (_, position, duration) async =>
+          const ProgressResult(lessonCompleted: false, courseProgress: 25);
+      repo.readOverview = () async {
+        final overview = makeOverview(review: true);
+        overview.chapters.first.lessons.last.isCompleted = true;
+        return overview;
+      };
+      await c.save('b', 80, 100);
+      expect(c.progress, 100);
+      expect(c.current!.isCompleted, isTrue);
+      expect(c.chapters.first.lessons.last.isCompleted, isTrue);
+      c.dispose();
+    },
+  );
+  test('server completion refreshes review eligibility', () async {
+    final repo = FakeLearning();
+    final c = LearningController(repo, 'course');
+    await c.load();
+    repo.write = (_, position, duration) async =>
+        const ProgressResult(lessonCompleted: true, courseProgress: 100);
+    repo.readOverview = () async => makeOverview(review: true);
+    await c.save('b', 100, 100);
+    expect(c.canReview, true);
+    c.dispose();
+  });
+  test(
+    'failed progress stays attached to its original lesson and retries after switching',
+    () async {
+      final repo = FakeLearning()
+        ..write = ((id, position, duration) async => throw offline);
+      final c = LearningController(repo, 'course');
+      await c.load();
+      await c.save('b', 42, 100);
+      expect(c.progressError, offline);
+      await c.select(makeLesson('a'));
+      repo.write = (_, position, duration) async =>
+          const ProgressResult(lessonCompleted: false, courseProgress: 40);
+      await c.retryProgress();
+      expect(repo.saved, [('b', 42, 100), ('b', 42, 100)]);
+      expect(c.current!.id, 'a');
+      expect(c.progressError, isNull);
+      c.dispose();
+    },
+  );
+  test('progress writes are serialized and positions are clamped', () async {
+    final repo = FakeLearning();
+    final pending = Completer<ProgressResult>();
+    repo.write = (_, position, duration) => pending.future;
+    final c = LearningController(repo, 'course');
+    await c.load();
+    final one = c.save('a', 200, 100);
+    final two = c.save('b', -4, 100);
+    await Future<void>.delayed(Duration.zero);
+    expect(repo.saved, [('a', 100, 100)]);
+    pending.complete(
+      const ProgressResult(lessonCompleted: false, courseProgress: 20),
+    );
+    await Future.wait([one, two]);
+    expect(repo.saved, [('a', 100, 100), ('b', 0, 100)]);
+    c.dispose();
+  });
+  test(
+    'finishing a request after disposal does not notify a dead screen',
+    () async {
+      final repo = FakeLearning();
+      final pending = Completer<Lesson>();
+      repo.readLesson = (_) => pending.future;
+      final c = LearningController(repo, 'course');
+      final load = c.load();
+      await Future<void>.delayed(Duration.zero);
+      c.dispose();
+      pending.complete(makeLesson('b'));
+      await load;
+      expect(c.current, isNull);
+    },
+  );
+  testWidgets('learning shows actual API failure, retries to an empty course', (
+    tester,
+  ) async {
+    final repo = FakeLearning()..readOverview = (() async => throw offline);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LearningSpaceScreen(
+          course: Course.fromJson({'id': 'course', 'title': 'Course'}),
+          repository: repo,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Mất kết nối'), findsOneWidget);
+    repo.readOverview = () async => makeOverview(empty: true);
+    await tester.tap(find.text('Thử lại'));
+    await tester.pumpAndSettle();
+    expect(find.text('Khóa học chưa có bài giảng'), findsOneWidget);
+    expect(find.text('Lesson a'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
+  testWidgets('lesson UI keeps server review gate and handles missing video', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final repo = FakeLearning();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LearningSpaceScreen(
+          course: Course.fromJson({'id': 'course', 'title': 'Course'}),
+          repository: repo,
+          resources: EmptyResources(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Không tải được video bài học'), findsOneWidget);
+    expect(find.text('Đánh giá 5★'), findsNothing);
+    expect(find.widgetWithText(OutlinedButton, 'Đánh giá'), findsNothing);
+    expect(find.text('Hỏi đáp Q&A'), findsNothing);
+    expect(find.text('Ghi chú'), findsOneWidget);
+    expect(find.text('Lesson b'), findsWidgets);
+    await tester.tap(find.text('Tài liệu'));
+    await tester.pumpAndSettle();
+    expect(find.text('Bài học chưa có tài liệu'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+  testWidgets(
+    'review stays open on API failure and cannot submit twice while pending',
+    (tester) async {
+      final pending = Completer<void>();
+      int calls = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: RatingDialog(
+              course: Course.fromJson({'id': 'course', 'title': 'Course'}),
+              onSubmit: (_, comment) {
+                calls++;
+                return pending.future;
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.byIcon(Icons.star_border_rounded).last);
+      await tester.tap(find.text('Gửi đánh giá'));
+      await tester.pump();
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(calls, 1);
+      pending.completeError(offline);
+      await tester.pumpAndSettle();
+      expect(find.text('Mất kết nối'), findsOneWidget);
+      expect(find.text('Gửi đánh giá'), findsOneWidget);
+    },
+  );
+}

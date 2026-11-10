@@ -1,12 +1,154 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
+import 'price_display.dart';
 import '../../core/constants/app_dimens.dart';
 import '../../core/constants/app_typography.dart';
-import '../../core/utils/formatters.dart';
 import '../../data/models/course.dart';
 import 'rating_stars.dart';
+import 'course_favorite_button.dart';
 
 enum CourseCardLayout { card, listHorizontal }
+
+/// Nhãn do API trả về, đặt trên ảnh khóa học như trang web.
+class CourseLabel extends StatelessWidget {
+  const CourseLabel({super.key, required this.label});
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final match = label.toLowerCase();
+    final personal = match.contains('phù hợp với bạn');
+    final rated = match.contains('đánh giá cao');
+    final fresh = match == 'mới';
+    final color = personal
+        ? Colors.white
+        : rated
+        ? const Color(0xFF059669)
+        : fresh
+        ? const Color(0xFF434CE8)
+        : AppColors.warning;
+    final background = personal
+        ? const Color(0xFF434CE8)
+        : rated
+        ? const Color(0xFFECFDF5)
+        : fresh
+        ? const Color(0xFFEEF2FF)
+        : AppColors.warningLight;
+    final border = rated
+        ? const Color(0xFFA7F3D0)
+        : fresh
+        ? const Color(0xFFC7D2FE)
+        : background;
+    final icon = personal
+        ? Icons.thumb_up_rounded
+        : rated
+        ? Icons.star_rounded
+        : fresh
+        ? Icons.auto_awesome
+        : Icons.local_fire_department_rounded;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: background,
+        border: Border.all(color: border),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 13),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTypography.captionTiny.copyWith(
+                color: color,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Nhãn "Phổ biến" cho các khóa thuộc nhóm khóa học phổ biến
+class PopularBadge extends StatelessWidget {
+  final bool compact;
+  const PopularBadge({super.key, this.compact = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 6.0 : AppDimens.p8,
+        vertical: compact ? 2.0 : 4.0,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.warning,
+        borderRadius: BorderRadius.circular(6.0),
+      ),
+      child: Text(
+        '🔥 Phổ biến',
+        style: AppTypography.captionTiny.copyWith(
+          color: Colors.white,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+/// Nhãn "Đang giảm giá -X%" cho khóa có giá bán thấp hơn giá gốc
+class SaleBadge extends StatelessWidget {
+  final double price;
+  final double originalPrice;
+  final bool compact;
+
+  const SaleBadge({
+    super.key,
+    required this.price,
+    required this.originalPrice,
+    this.compact = false,
+  });
+
+  static bool isOnSale(double price, double originalPrice) =>
+      originalPrice > price && originalPrice > 0;
+
+  /// Nhãn `tag` server gắn sẵn mà cũng nói về giảm giá ("Giảm giá"...). Khi khóa đang giảm thì bỏ nhãn này
+  /// để chỉ còn một nhãn "Đang giảm giá -X%".
+  static bool isSaleTag(String tag) => tag.toLowerCase().contains('giảm');
+
+  /// Có nên hiện nhãn `tag` của server không
+  static bool showTag(String tag, double price, double originalPrice) =>
+      tag.isNotEmpty && !(isOnSale(price, originalPrice) && isSaleTag(tag));
+
+  @override
+  Widget build(BuildContext context) {
+    if (!isOnSale(price, originalPrice)) return const SizedBox.shrink();
+    final percent = ((originalPrice - price) / originalPrice * 100).round();
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 6.0 : AppDimens.p8,
+        vertical: compact ? 2.0 : 4.0,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.error,
+        borderRadius: BorderRadius.circular(6.0),
+      ),
+      child: Text(
+        percent > 0 ? 'Đang giảm giá -$percent%' : 'Đang giảm giá',
+        style: AppTypography.captionTiny.copyWith(
+          color: Colors.white,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
 
 /// Widget Thẻ khóa học chuẩn hóa theo QuyChuanThietKe_App.md Mục 2.3 & 4.2
 class CourseCard extends StatelessWidget {
@@ -14,6 +156,17 @@ class CourseCard extends StatelessWidget {
   final VoidCallback onTap;
   final CourseCardLayout layout;
   final double? width;
+  final List<String> badges;
+
+  /// Nút nhỏ đặt đè lên góc ảnh bìa (kiểu danh sách), vd: trái tim bỏ yêu thích
+  final Widget? imageOverlay;
+
+  /// Khóa thuộc nhóm phổ biến thì hiện nhãn "Phổ biến" trên ảnh
+  final bool isPopular;
+
+  /// Nút tim ở góc phải ảnh (kiểu danh sách). Null thì không hiện nút.
+  final bool? isFavorite;
+  final VoidCallback? onFavoriteTap;
 
   const CourseCard({
     super.key,
@@ -21,6 +174,11 @@ class CourseCard extends StatelessWidget {
     required this.onTap,
     this.layout = CourseCardLayout.card,
     this.width,
+    this.badges = const [],
+    this.imageOverlay,
+    this.isPopular = false,
+    this.isFavorite,
+    this.onFavoriteTap,
   });
 
   @override
@@ -33,6 +191,12 @@ class CourseCard extends StatelessWidget {
 
   // Bố cục Card dọc chuẩn cho danh sách cuộn ngang (Home)
   Widget _buildVerticalCard(BuildContext context) {
+    final labels = badges.where((b) => b.trim().isNotEmpty).toSet().toList();
+    final tag = course.tag.trim();
+    if (SaleBadge.showTag(tag, course.price, course.originalPrice) &&
+        !labels.contains(tag)) {
+      labels.add(tag);
+    }
     return Container(
       width: width ?? 260.0,
       decoration: BoxDecoration(
@@ -73,31 +237,47 @@ class CourseCard extends StatelessWidget {
                       ),
                     ),
                   ),
-                  if (course.tag.isNotEmpty)
+                  // Nhãn "Phổ biến" và "Đang giảm giá" xếp dọc, đè lên góc trái của ảnh;
+                  // nhãn khác của server (vd "Bán chạy") nhường sang góc phải khi đã có nhãn bên trái
+                  if (isPopular ||
+                      labels.isNotEmpty ||
+                      SaleBadge.isOnSale(course.price, course.originalPrice))
                     Positioned(
                       top: AppDimens.p8,
                       left: AppDimens.p8,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppDimens.p8,
-                          vertical: 4.0,
-                        ),
-                        decoration: BoxDecoration(
-                          color: course.tag.contains('TOP MATCH')
-                              ? AppColors.primary
-                              : (course.isFree
-                                  ? AppColors.success
-                                  : AppColors.warning),
-                          borderRadius: BorderRadius.circular(6.0),
-                        ),
-                        child: Text(
-                          course.tag,
-                          style: AppTypography.captionTiny.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
+                      right: 58,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          for (final label in labels) ...[
+                            CourseLabel(label: label),
+                            const SizedBox(height: 4),
+                          ],
+                          if (isPopular) const PopularBadge(),
+                          if (isPopular &&
+                              SaleBadge.isOnSale(
+                                course.price,
+                                course.originalPrice,
+                              ))
+                            const SizedBox(height: 4.0),
+                          if (SaleBadge.isOnSale(
+                            course.price,
+                            course.originalPrice,
+                          ))
+                            SaleBadge(
+                              price: course.price,
+                              originalPrice: course.originalPrice,
+                            ),
+                        ],
                       ),
+                    ),
+                  if (imageOverlay != null || !course.isEnrolled)
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child:
+                          imageOverlay ?? CourseFavoriteButton(course: course),
                     ),
                 ],
               ),
@@ -165,28 +345,14 @@ class CourseCard extends StatelessWidget {
                       ),
                     ] else ...[
                       // Giá bán kép (Ưu đãi & Gốc)
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.baseline,
-                        textBaseline: TextBaseline.alphabetic,
-                        children: [
-                          Text(
-                            AppFormatters.formatCurrency(course.price),
-                            style: AppTypography.titleMedium.copyWith(
-                              color: AppColors.primary,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          if (course.originalPrice > course.price) ...[
-                            const SizedBox(width: AppDimens.p8),
-                            Text(
-                              AppFormatters.formatCurrency(course.originalPrice),
-                              style: AppTypography.labelSmall.copyWith(
-                                color: AppColors.textMuted,
-                                decoration: TextDecoration.lineThrough,
-                              ),
-                            ),
-                          ],
-                        ],
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: PriceDisplay(
+                          price: course.price,
+                          originalPrice: course.originalPrice,
+                          showPercent: false, // nhãn -X% đã nằm trên ảnh bìa
+                        ),
                       ),
                     ],
                   ],
@@ -201,6 +367,9 @@ class CourseCard extends StatelessWidget {
 
   // Bố cục Hàng ngang cho màn hình Khám phá & Tìm kiếm
   Widget _buildListRow(BuildContext context) {
+    final onSale = SaleBadge.isOnSale(course.price, course.originalPrice);
+    final favorite = isFavorite ?? false;
+
     return Container(
       margin: const EdgeInsets.only(bottom: AppDimens.p12),
       decoration: BoxDecoration(
@@ -217,98 +386,186 @@ class CourseCard extends StatelessWidget {
           borderRadius: AppDimens.radiusCard,
           child: Padding(
             padding: const EdgeInsets.all(AppDimens.p12),
-            child: Row(
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Ảnh bìa bên trái
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(10.0),
-                  child: SizedBox(
-                    width: 110,
-                    height: 80,
-                    child: Image.network(
-                      course.imageUrl,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => Container(
-                        color: AppColors.surfaceSubtle,
-                        child: const Icon(
-                          Icons.image_not_supported_rounded,
-                          color: AppColors.textMuted,
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Ảnh bìa bên trái
+                    Stack(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(10.0),
+                          child: SizedBox(
+                            width: 110,
+                            height: 80,
+                            child: Image.network(
+                              course.imageUrl,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) =>
+                                  Container(
+                                    color: AppColors.surfaceSubtle,
+                                    child: const Icon(
+                                      Icons.image_not_supported_rounded,
+                                      color: AppColors.textMuted,
+                                    ),
+                                  ),
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: AppDimens.p12),
-
-                // Nội dung bên phải
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6.0,
-                              vertical: 2.0,
-                            ),
-                            decoration: BoxDecoration(
-                              color: AppColors.primaryLight,
-                              borderRadius: BorderRadius.circular(4.0),
-                            ),
-                            child: Text(
-                              course.category,
-                              style: AppTypography.captionTiny.copyWith(
-                                color: AppColors.primary,
-                                fontWeight: FontWeight.w700,
+                        // Nhãn giảm giá đè lên góc trái của ảnh; chữ tự thu nhỏ nếu dài hơn ảnh
+                        if (onSale || isPopular || badges.isNotEmpty)
+                          Positioned(
+                            top: 4,
+                            left: 4,
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 102),
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.centerLeft,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    for (final label
+                                        in badges
+                                            .where((b) => b.trim().isNotEmpty)
+                                            .toSet()) ...[
+                                      CourseLabel(label: label),
+                                      const SizedBox(height: 3),
+                                    ],
+                                    if (isPopular)
+                                      const PopularBadge(compact: true),
+                                    if (isPopular && onSale)
+                                      const SizedBox(height: 3.0),
+                                    if (onSale)
+                                      SaleBadge(
+                                        price: course.price,
+                                        originalPrice: course.originalPrice,
+                                        compact: true,
+                                      ),
+                                  ],
+                                ),
                               ),
                             ),
                           ),
-                          const Spacer(),
+                        if (imageOverlay != null)
+                          Positioned(top: 4, left: 4, child: imageOverlay!),
+                      ],
+                    ),
+                    const SizedBox(width: AppDimens.p12),
+
+                    // Thông tin bên phải
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Flexible(
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6.0,
+                                    vertical: 2.0,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.primaryLight,
+                                    borderRadius: BorderRadius.circular(4.0),
+                                  ),
+                                  child: Text(
+                                    course.category,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: AppTypography.captionTiny.copyWith(
+                                      color: AppColors.primary,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 6.0),
+                              Text(
+                                course.duration,
+                                style: AppTypography.captionTiny.copyWith(
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4.0),
                           Text(
-                            course.duration,
-                            style: AppTypography.captionTiny.copyWith(
+                            course.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.bodyMedium.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.textHeading,
+                            ),
+                          ),
+                          const SizedBox(height: 4.0),
+                          Text(
+                            course.instructor,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.labelSmall.copyWith(
                               color: AppColors.textSecondary,
                             ),
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: 4.0),
-                      Text(
-                        course.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.bodyMedium.copyWith(
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.textHeading,
-                        ),
-                      ),
-                      const SizedBox(height: 4.0),
-                      Text(
-                        course.instructor,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.labelSmall.copyWith(
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                      const SizedBox(height: 6.0),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          RatingStars(rating: course.rating),
-                          Text(
-                            AppFormatters.formatCurrency(course.price),
-                            style: AppTypography.bodyMedium.copyWith(
-                              color: AppColors.primary,
-                              fontWeight: FontWeight.w800,
+                          const SizedBox(height: 6.0),
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: RatingStars(
+                              rating: course.rating,
+                              reviewCount: course.reviewCount,
                             ),
                           ),
                         ],
                       ),
+                    ),
+                  ],
+                ),
+
+                // Hàng cuối: giá ở góc dưới bên phải, nút tim ngay bên phải giá
+                const SizedBox(height: 8.0),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    // Giá cũ gạch ngang + nhãn -X% ở trên, giá mới ở dưới
+                    PriceDisplay(
+                      price: course.price,
+                      originalPrice: course.originalPrice,
+                      stacked: true,
+                      alignment: CrossAxisAlignment.end,
+                    ),
+                    if (onFavoriteTap != null ||
+                        (imageOverlay == null && !course.isEnrolled)) ...[
+                      const SizedBox(width: 6.0),
+                      SizedBox(
+                        width: 36,
+                        height: 36,
+                        child: onFavoriteTap == null
+                            ? CourseFavoriteButton(course: course)
+                            : IconButton(
+                                padding: EdgeInsets.zero,
+                                tooltip: favorite
+                                    ? 'Bỏ yêu thích'
+                                    : 'Yêu thích',
+                                icon: Icon(
+                                  favorite
+                                      ? Icons.favorite_rounded
+                                      : Icons.favorite_border_rounded,
+                                  color: favorite
+                                      ? AppColors.error
+                                      : AppColors.textSecondary,
+                                ),
+                                onPressed: onFavoriteTap,
+                              ),
+                      ),
                     ],
-                  ),
+                  ],
                 ),
               ],
             ),

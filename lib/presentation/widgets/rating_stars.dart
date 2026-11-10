@@ -44,6 +44,20 @@ class RatingStars extends StatelessWidget {
       );
     }
 
+    if (reviewCount == 0) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.star_border_rounded, color: AppColors.textMuted, size: 18.0),
+          const SizedBox(width: 4.0),
+          Text(
+            'Chưa có đánh giá',
+            style: AppTypography.labelSmall.copyWith(color: AppColors.textSecondary, fontWeight: FontWeight.w400),
+          ),
+        ],
+      );
+    }
+
     return Row(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.center,

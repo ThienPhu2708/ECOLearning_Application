@@ -1,8 +1,11 @@
-import 'dart:async';
+import 'package:bootstrap_icons/bootstrap_icons.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_typography.dart';
-import 'onboarding_screen.dart';
+import '../../providers/auth_provider.dart';
+import '../auth/login_screen.dart';
+import '../main_navigation.dart';
 
 /// Màn hình khởi động Splash Screen
 class SplashScreen extends StatefulWidget {
@@ -17,7 +20,6 @@ class _SplashScreenState extends State<SplashScreen>
   late AnimationController _controller;
   late Animation<double> _scaleAnimation;
   late Animation<double> _opacityAnimation;
-  Timer? _timer;
 
   @override
   void initState() {
@@ -27,35 +29,45 @@ class _SplashScreenState extends State<SplashScreen>
       duration: const Duration(milliseconds: 1200),
     );
 
-    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
-    );
+    _scaleAnimation = Tween<double>(
+      begin: 0.8,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutBack));
 
-    _opacityAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeIn),
-    );
+    _opacityAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeIn));
 
     _controller.forward();
 
-    // Chuyển trang tự động sau 2 giây
-    _timer = Timer(const Duration(milliseconds: 2200), () {
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
-          PageRouteBuilder(
-            pageBuilder: (context, anim, secAnim) => const OnboardingScreen(),
-            transitionsBuilder: (context, anim, secAnim, child) {
-              return FadeTransition(opacity: anim, child: child);
-            },
-            transitionDuration: const Duration(milliseconds: 400),
-          ),
-        );
-      }
-    });
+    // Chờ hiệu ứng khởi động, đồng thời kiểm tra token (A8) để chọn màn hình đầu tiên
+    _start();
+  }
+
+  Future<void> _start() async {
+    final auth = context.read<AuthProvider>();
+    final results = await Future.wait([
+      auth.restoreSession(),
+      Future<void>.delayed(const Duration(milliseconds: 2200)),
+    ]);
+    if (!mounted) return;
+    final loggedIn = results.first as bool;
+    final Widget next = loggedIn
+        ? const MainNavigationScreen()
+        : const LoginScreen();
+    Navigator.of(context).pushReplacement(
+      PageRouteBuilder(
+        pageBuilder: (context, anim, secAnim) => next,
+        transitionsBuilder: (context, anim, secAnim, child) =>
+            FadeTransition(opacity: anim, child: child),
+        transitionDuration: const Duration(milliseconds: 400),
+      ),
+    );
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
     _controller.dispose();
     super.dispose();
   }
@@ -97,8 +109,9 @@ class _SplashScreenState extends State<SplashScreen>
                         ),
                       ],
                     ),
+                    // Logo giống website: icon sách mở (bi-book-half)
                     child: const Icon(
-                      Icons.school_rounded,
+                      BootstrapIcons.book_half,
                       size: 64.0,
                       color: AppColors.primary,
                     ),
@@ -110,8 +123,9 @@ class _SplashScreenState extends State<SplashScreen>
                 opacity: _opacityAnimation,
                 child: Column(
                   children: [
+                    // Tên thương hiệu giống logo website ("E-Learning.")
                     Text(
-                      'EDU LEARNER',
+                      'E-Learning',
                       style: AppTypography.headlineMedium.copyWith(
                         color: Colors.white,
                         fontWeight: FontWeight.w800,

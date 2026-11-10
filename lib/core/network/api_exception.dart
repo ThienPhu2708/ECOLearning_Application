@@ -49,7 +49,7 @@ class ApiException implements Exception {
       final errors = <String, String>{};
       final raw = body['errors'];
       if (raw is Map) {
-        raw.forEach((k, v) => errors['$k'] = '$v');
+        raw.forEach((k, v) => errors['$k'] = v is List ? v.join(' ') : '$v');
       }
       return ApiException(
         statusCode: status,
@@ -58,7 +58,11 @@ class ApiException implements Exception {
         errors: errors,
       );
     }
-    return ApiException(statusCode: status, code: 'HTTP_${status ?? 0}', message: defaultMessage(status));
+    return ApiException(
+      statusCode: status,
+      code: 'HTTP_${status ?? 0}',
+      message: defaultMessage(status),
+    );
   }
 
   static String defaultMessage(int? status) {

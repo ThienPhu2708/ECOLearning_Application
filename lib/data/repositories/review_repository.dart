@@ -9,9 +9,30 @@ class ReviewRepository {
 
   /// E1. Gửi hoặc sửa đánh giá của tôi. [rating] 1 – 5, [comment] có thể để trống.
   /// Lỗi 403 `NOT_ELIGIBLE`: chưa học đủ 100% bài hoặc chưa đạt quiz.
-  Future<Map<String, dynamic>> submit(String courseId, {required int rating, String? comment}) async =>
-      JsonUtils.asMap(await _api.post('/courses/$courseId/reviews', data: {
-        'rating': rating,
-        'comment': comment?.trim(),
-      }));
+  Future<Map<String, dynamic>> submit(
+    String courseId, {
+    required int rating,
+    String? comment,
+  }) async => JsonUtils.asMap(
+    await _api.post(
+      '/courses/$courseId/reviews',
+      data: {'rating': rating, 'comment': comment?.trim()},
+    ),
+  );
+  Future<void> delete(String courseId) async {
+    await _api.delete('/courses/$courseId/reviews');
+  }
+
+  /// E2. "Bạn thấy hữu ích?": gửi lại đúng lựa chọn đang có thì bỏ bình chọn.
+  /// Trả `{ reviewId, helpfulCount, notHelpfulCount, myVote }` (myVote: true / false / null).
+  /// Lỗi 403 `OWN_REVIEW`: tự bình chọn đánh giá của mình.
+  Future<Map<String, dynamic>> vote(
+    String reviewId, {
+    required bool helpful,
+  }) async => JsonUtils.asMap(
+    await _api.post(
+      '/reviews/${Uri.encodeComponent(reviewId)}/helpful',
+      data: {'helpful': helpful},
+    ),
+  );
 }

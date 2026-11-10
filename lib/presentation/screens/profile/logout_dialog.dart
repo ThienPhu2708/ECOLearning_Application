@@ -4,6 +4,9 @@ import '../../../core/constants/app_dimens.dart';
 import '../../../core/constants/app_typography.dart';
 import '../../widgets/app_button.dart';
 import '../auth/login_screen.dart';
+import 'package:provider/provider.dart';
+import '../../providers/auth_provider.dart';
+import '../../widgets/user_avatar.dart';
 
 /// Modal Hộp thoại xác nhận Đăng xuất theo QuyChuanThietKe_App.md Mục 4.8 & UC2
 class LogoutDialog extends StatelessWidget {
@@ -69,10 +72,20 @@ class LogoutDialog extends StatelessWidget {
                 child: AppButton(
                   text: 'Đăng xuất',
                   type: AppButtonType.danger,
-                  onPressed: () {
+                  onPressed: () async {
+                    final auth = Provider.of<AuthProvider?>(
+                      context,
+                      listen: false,
+                    );
+                    final id = auth?.user?.id;
+                    await auth?.logout();
+                    if (id != null) AvatarImages.forUser(id).value = null;
+                    if (!context.mounted) return;
                     Navigator.of(context).pop(); // pop dialog
                     Navigator.of(context).pushAndRemoveUntil(
-                      MaterialPageRoute(builder: (context) => const LoginScreen()),
+                      MaterialPageRoute(
+                        builder: (context) => const LoginScreen(),
+                      ),
                       (route) => false,
                     );
                   },

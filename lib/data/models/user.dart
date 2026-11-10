@@ -1,3 +1,4 @@
+import '../../core/config/api_config.dart';
 import '../../core/utils/json_utils.dart';
 
 /// Model Thông tin tài khoản Học viên (đối tượng User, mục 5.5 Task_Tuan10.docx)
@@ -43,7 +44,9 @@ class User {
       id: JsonUtils.asString(json['id']),
       fullName: JsonUtils.asString(json['fullName']),
       email: JsonUtils.asString(json['email']),
-      avatarUrl: JsonUtils.asString(json['avatarUrl']),
+      avatarUrl: ApiConfig.resolveMediaUrl(
+        JsonUtils.asString(json['avatarUrl']),
+      ),
       role: _roleNames[role] ?? role,
       phone: JsonUtils.asString(json['phone']),
       gender: JsonUtils.asStringOrNull(json['gender']),

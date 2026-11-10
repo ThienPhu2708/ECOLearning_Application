@@ -1,6 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'core/notifications/study_reminder_service.dart';
 import 'package:provider/provider.dart';
 
+import 'core/error_reporting.dart';
 import 'core/network/api_client.dart';
 import 'core/storage/token_storage.dart';
 import 'core/theme/app_theme.dart';
@@ -11,21 +14,34 @@ import 'presentation/screens/splash/splash_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  installErrorReporting();
 
   // Nạp token đã lưu và giỏ hàng trên máy trước khi vẽ màn hình đầu tiên
   await TokenStorage.instance.load();
   final auth = AuthProvider();
   final cart = CartProvider();
   await cart.load();
+  auth.onSessionCleared = cart.clear;
 
   // Token hết hạn / bị thu hồi (401): xóa phiên, về màn Đăng nhập
   ApiClient.instance.onUnauthorized = () async {
     if (auth.isLoggingOut) return;
     await auth.handleSessionExpired();
-    AppNavigator.toLogin(message: 'Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại.');
+    AppNavigator.toLogin(
+      message: 'Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại.',
+    );
   };
 
   runApp(EcoLearningApp(auth: auth, cart: cart));
+  unawaited(_restoreStudyReminder());
+}
+
+Future<void> _restoreStudyReminder() async {
+  try {
+    await StudyReminderService.instance.restore();
+  } catch (error) {
+    debugPrint('Study reminder restore failed: $error');
+  }
 }
 
 class EcoLearningApp extends StatelessWidget {
@@ -42,7 +58,7 @@ class EcoLearningApp extends StatelessWidget {
         ChangeNotifierProvider<CartProvider>.value(value: cart),
       ],
       child: MaterialApp(
-        title: 'ECOLearning',
+        title: 'E-Learning',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.lightTheme,
         navigatorKey: AppNavigator.navigatorKey,

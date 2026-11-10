@@ -1,3 +1,4 @@
+import '../../core/config/api_config.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/json_utils.dart';
 
@@ -13,6 +14,9 @@ class Lesson {
   int lastPositionSeconds; // Mốc thời gian xem dở
   final String? videoSummary;
   final String? videoUrl; // Chỉ có khi gọi G3 (bài đã sở hữu) hoặc B8 (xem thử)
+  final bool? isUnlocked;
+  final bool hasSubtitle;
+  final String? subtitleUrl;
 
   Lesson({
     required this.id,
@@ -25,6 +29,9 @@ class Lesson {
     this.lastPositionSeconds = 0,
     this.videoSummary,
     this.videoUrl,
+    this.isUnlocked,
+    this.hasSubtitle = false,
+    this.subtitleUrl,
   });
 
   /// Bài trong đề cương (B3, G2) hoặc chi tiết một bài để phát (G3)
@@ -39,7 +46,16 @@ class Lesson {
       isFree: JsonUtils.asBool(json['isPreview']),
       lastPositionSeconds: JsonUtils.asInt(json['lastPositionSeconds']),
       videoSummary: JsonUtils.asStringOrNull(json['summary']),
-      videoUrl: JsonUtils.asStringOrNull(json['videoUrl']),
+      isUnlocked: json.containsKey('isUnlocked') && json['isUnlocked'] != null
+          ? JsonUtils.asBool(json['isUnlocked'])
+          : null,
+      hasSubtitle: JsonUtils.asBool(json['hasSubtitle']),
+      subtitleUrl: JsonUtils.asStringOrNull(
+        JsonUtils.asMap(json['subtitle'])['url'],
+      ),
+      videoUrl: JsonUtils.asStringOrNull(json['videoUrl']) == null
+          ? null
+          : ApiConfig.resolveMediaUrl(JsonUtils.asString(json['videoUrl'])),
     );
   }
 
@@ -54,6 +70,9 @@ class Lesson {
     int? lastPositionSeconds,
     String? videoSummary,
     String? videoUrl,
+    bool? isUnlocked,
+    bool? hasSubtitle,
+    String? subtitleUrl,
   }) {
     return Lesson(
       id: id ?? this.id,
@@ -66,6 +85,9 @@ class Lesson {
       lastPositionSeconds: lastPositionSeconds ?? this.lastPositionSeconds,
       videoSummary: videoSummary ?? this.videoSummary,
       videoUrl: videoUrl ?? this.videoUrl,
+      isUnlocked: isUnlocked ?? this.isUnlocked,
+      hasSubtitle: hasSubtitle ?? this.hasSubtitle,
+      subtitleUrl: subtitleUrl ?? this.subtitleUrl,
     );
   }
 }
@@ -76,17 +98,15 @@ class Chapter {
   final String title;
   final List<Lesson> lessons;
 
-  Chapter({
-    required this.id,
-    required this.title,
-    required this.lessons,
-  });
+  Chapter({required this.id, required this.title, required this.lessons});
 
   factory Chapter.fromJson(Map<String, dynamic> json) {
     return Chapter(
       id: JsonUtils.asString(json['id']),
       title: JsonUtils.asString(json['title']),
-      lessons: JsonUtils.asMapList(json['lessons']).map(Lesson.fromJson).toList(),
+      lessons: JsonUtils.asMapList(
+        json['lessons'],
+      ).map(Lesson.fromJson).toList(),
     );
   }
 }

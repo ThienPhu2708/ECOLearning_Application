@@ -1,212 +1,232 @@
 import 'package:flutter/material.dart';
+import '../learning_support/learning_data_scope.dart';
+import 'package:flutter/services.dart';
 import '../../../core/constants/app_colors.dart';
-import '../../../core/constants/app_dimens.dart';
-import '../../../core/constants/app_typography.dart';
-import '../../../data/mock_data.dart';
+import '../../../core/network/api_exception.dart';
+import '../../../core/utils/json_utils.dart';
+import 'web_certificate_canvas.dart';
 import '../../../data/models/course.dart';
+import '../../../data/repositories/quiz_repository.dart';
 import '../../widgets/app_button.dart';
+import '../../widgets/state_views.dart';
 
-/// Màn hình Xem và Tải chứng chỉ tốt nghiệp điện tử theo Mục 4.7 & UC8
-class CertificateScreen extends StatelessWidget {
-  final Course course;
+class CertificateScreen extends StatefulWidget {
+  final Course? course;
+  final String? courseId;
+  final bool? quizAvailable;
+  final Map<String, dynamic>? certificate;
+  final QuizRepository? repository;
+  const CertificateScreen({
+    super.key,
+    this.course,
+    this.courseId,
+    this.quizAvailable,
+    this.certificate,
+    this.repository,
+  }) : assert(course != null || courseId != null || certificate != null);
+  @override
+  State<CertificateScreen> createState() => _CertificateScreenState();
+}
 
-  const CertificateScreen({super.key, required this.course});
+class _CertificateScreenState extends State<CertificateScreen> {
+  Map<String, dynamic>? _data;
+  Object? _error;
+  bool _loading = true;
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final data =
+          widget.certificate ??
+          await (widget.repository ??
+                  LearningDataScope.read(context)?.quiz ??
+                  QuizRepository())
+              .certificate(widget.courseId ?? widget.course!.id);
+      if (mounted) setState(() => _data = data);
+    } catch (e) {
+      if (mounted) setState(() => _error = e);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _zoom() {
+    Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => Scaffold(
+          backgroundColor: AppColors.background,
+          appBar: AppBar(title: const Text('Chứng chỉ khóa học')),
+          body: SafeArea(
+            child: InteractiveViewer(
+              minScale: 1,
+              maxScale: 4,
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: FittedBox(
+                    fit: BoxFit.contain,
+                    child: WebCertificateCanvas(certificate: _data!),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
+    final data = _data ?? {};
+    final code = JsonUtils.asString(data['code']);
+    final error = _error;
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
-        title: Text(
-          'Chứng chỉ tốt nghiệp',
-          style: AppTypography.titleMedium.copyWith(
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.all(AppDimens.p16),
-          child: Column(
-            children: [
-              // Khung hiển thị chứng chỉ số sang trọng (Certificate Frame)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(AppDimens.p20),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: AppDimens.radiusCard,
-                  border: Border.all(color: const Color(0xFFD97706), width: 3.0), // Viền vàng kim
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFFD97706).withValues(alpha: 0.15),
-                      blurRadius: 20,
-                      offset: const Offset(0, 8),
+      appBar: AppBar(title: const Text('Chứng chỉ khóa học')),
+      body: _loading
+          ? const LoadingView()
+          : error is ApiException &&
+                error.isNotFound &&
+                error.code == 'CERTIFICATE_NOT_FOUND'
+          ? EmptyView(
+              icon: Icons.verified_outlined,
+              title: 'Chưa có chứng chỉ',
+              message: switch (widget.quizAvailable) {
+                true => 'Xem trạng thái Quiz cuối khóa để biết bước tiếp theo.',
+                false =>
+                  'Hệ thống chưa xác nhận đủ điều kiện cấp chứng chỉ. '
+                      'Bạn có thể kiểm tra lại tiến độ và trạng thái khóa học.',
+                null => 'Kiểm tra tiến độ học và yêu cầu của khóa học.',
+              },
+              actionText: 'Kiểm tra lại',
+              onAction: _load,
+            )
+          : error != null
+          ? ErrorView(
+              error: error,
+              onRetry:
+                  error is ApiException &&
+                      (error.isUnauthorized || error.isForbidden)
+                  ? null
+                  : _load,
+            )
+          : ListView(
+              padding: const EdgeInsets.all(20),
+              children: [
+                Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 7,
                     ),
-                  ],
-                ),
-                child: Container(
-                  padding: const EdgeInsets.all(AppDimens.p16),
-                  decoration: BoxDecoration(
-                    border: Border.all(
-                      color: const Color(0xFFFDE68A),
-                      width: 1.5,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFECFDF5),
+                      border: Border.all(color: const Color(0xFFA7F3D0)),
+                      borderRadius: BorderRadius.circular(999),
                     ),
-                  ),
-                  child: Column(
-                    children: [
-                      // Huy hiệu chứng nhận
-                      const Icon(
-                        Icons.workspace_premium_rounded,
-                        color: Color(0xFFD97706),
-                        size: 56.0,
-                      ),
-                      const SizedBox(height: 12.0),
-
-                      Text(
-                        'CHỨNG CHỈ TỐT NGHIỆP',
-                        style: AppTypography.headlineMedium.copyWith(
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 1.5,
-                          fontSize: 20.0,
-                          color: const Color(0xFF92400E),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.verified_rounded,
+                          color: Color(0xFF059669),
+                          size: 16,
                         ),
-                      ),
-                      Text(
-                        'CERTIFICATE OF COMPLETION',
-                        style: AppTypography.captionTiny.copyWith(
-                          letterSpacing: 2.0,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                      const SizedBox(height: 16.0),
-
-                      Text(
-                        'Chứng nhận học viên',
-                        style: AppTypography.labelSmall.copyWith(
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
-                      const SizedBox(height: 6.0),
-                      Text(
-                        MockData.currentUser.fullName.toUpperCase(),
-                        style: AppTypography.headlineMedium.copyWith(
-                          color: AppColors.primary,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 22.0,
-                        ),
-                      ),
-                      const SizedBox(height: 12.0),
-
-                      Text(
-                        'Đã hoàn thành xuất sắc 100% chương trình khóa học:',
-                        textAlign: TextAlign.center,
-                        style: AppTypography.bodyMedium.copyWith(
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                      const SizedBox(height: 6.0),
-                      Text(
-                        course.title,
-                        textAlign: TextAlign.center,
-                        style: AppTypography.titleMedium.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 20.0),
-
-                      // Thông tin giảng viên & Mã xác thực
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Giảng viên chứng nhận',
-                                style: AppTypography.captionTiny.copyWith(
-                                  color: AppColors.textSecondary,
-                                ),
-                              ),
-                              const SizedBox(height: 4.0),
-                              Text(
-                                course.instructor,
-                                style: AppTypography.bodyMedium.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              Text(
-                                'Ngày cấp: 15/01/2026',
-                                style: AppTypography.captionTiny.copyWith(
-                                  color: AppColors.textSecondary,
-                                ),
-                              ),
-                            ],
-                          ),
-                          // QR Code mô phỏng xác thực
-                          Container(
-                            padding: const EdgeInsets.all(6.0),
-                            decoration: BoxDecoration(
-                              color: AppColors.surfaceSubtle,
-                              borderRadius: BorderRadius.circular(8.0),
-                            ),
-                            child: const Icon(
-                              Icons.qr_code_2_rounded,
-                              size: 48.0,
-                              color: AppColors.textHeading,
+                        SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            'Chứng chỉ số được xác thực',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: Color(0xFF059669),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
                             ),
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: 12.0),
-
-                      Text(
-                        'Mã số xác thực: CERT-2026-KLCN044-${course.id.hashCode.abs().toString().substring(0, 5)}',
-                        style: AppTypography.captionTiny.copyWith(
-                          color: AppColors.textMuted,
-                          fontFamily: 'monospace',
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 24.0),
-
-              // Cụm nút hành động Tải về và Chia sẻ
-              AppButton(
-                text: 'Tải chứng chỉ về máy (PDF / Ảnh)',
-                icon: const Icon(Icons.download_rounded, size: 20),
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Đang lưu chứng chỉ định dạng PDF độ phân giải cao...'),
-                      backgroundColor: AppColors.success,
+                const SizedBox(height: 16),
+                const Text(
+                  'Chứng Chỉ Hoàn Thành Khóa Học',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.textHeading,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Mã xác thực trực tuyến:',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 13,
+                  ),
+                ),
+                SelectableText(
+                  code,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: AppColors.textHeading,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Semantics(
+                  label: 'Chứng chỉ hoàn thành khóa học. Mở để phóng to.',
+                  button: true,
+                  child: GestureDetector(
+                    onTap: _zoom,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.topCenter,
+                      child: WebCertificateCanvas(certificate: data),
                     ),
-                  );
-                },
-              ),
-              const SizedBox(height: 12.0),
-
-              AppButton(
-                text: 'Chia sẻ lên LinkedIn / Facebook',
-                type: AppButtonType.secondary,
-                icon: const Icon(Icons.share_rounded, size: 20),
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Đã sao chép liên kết xác thực chứng chỉ số!'),
-                    ),
-                  );
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Center(
+                  child: TextButton.icon(
+                    onPressed: _zoom,
+                    icon: const Icon(Icons.zoom_in_rounded),
+                    label: const Text('Phóng to chứng chỉ'),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                AppButton(
+                  text: 'Sao chép mã',
+                  type: AppButtonType.secondary,
+                  icon: const Icon(Icons.copy_outlined),
+                  onPressed: code.isEmpty
+                      ? null
+                      : () async {
+                          await Clipboard.setData(ClipboardData(text: code));
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Đã sao chép mã chứng chỉ.'),
+                              ),
+                            );
+                          }
+                        },
+                ),
+              ],
+            ),
     );
   }
 }

@@ -1,0 +1,14 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "ECOLearning — API thật",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "toolArgs": [
+        "--dart-define=GOOGLE_SERVER_CLIENT_ID=16112335076-7inckr0r5mo4og4gmi70c5t10j82bg4o.apps.googleusercontent.com"
+      ]
+    }
+  ]
+}

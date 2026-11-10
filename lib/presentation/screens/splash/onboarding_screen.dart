@@ -16,6 +16,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   final PageController _pageController = PageController();
   int _currentPage = 0;
 
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
   final List<Map<String, dynamic>> _pages = [
     {
       'tag': '✨ KHÁM PHÁ KHÔNG GIỚI HẠN',
