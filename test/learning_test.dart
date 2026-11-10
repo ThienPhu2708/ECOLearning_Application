@@ -87,6 +87,32 @@ class EmptyResources extends LessonResourcesRepository {
 
 void main() {
   setUpAll(() => GoogleFonts.config.allowRuntimeFetching = false);
+  test('certificate entry follows completion and existing issuance', () async {
+    final repo = FakeLearning();
+    final controller = LearningController(repo, 'course');
+    addTearDown(controller.dispose);
+    for (final (progress, published, issued, expected) in [
+      (75.0, false, false, false),
+      (100.0, false, false, true),
+      (100.0, true, false, false),
+      (100.0, true, true, true),
+    ]) {
+      repo.readOverview = () async => LearningOverview(
+        courseId: 'course',
+        title: 'Course',
+        progress: progress,
+        currentLessonId: null,
+        chapters: const [],
+        quizAvailable: published,
+        quizPassed: false,
+        certificateIssued: issued,
+        canReview: false,
+      );
+      await controller.refreshOverview();
+      expect(controller.canCheckCertificate, expected);
+    }
+  });
+
   LearningOverview sequential({bool firstDone = false, String? resume}) =>
       LearningOverview(
         courseId: 'course',
@@ -231,24 +257,29 @@ void main() {
     },
   );
   test(
-    'review requires completed lessons and passing quiz even with a stale permission flag',
+    'review requires completion and server permission regardless of quiz result',
     () async {
-      for (final state in [(50.0, true), (100.0, false), (100.0, true)]) {
+      for (final (progress, quizPassed, canReview) in [
+        (50.0, true, true),
+        (100.0, false, true),
+        (100.0, true, true),
+        (100.0, false, false),
+      ]) {
         final repo = FakeLearning()
           ..readOverview = (() async => LearningOverview(
             courseId: 'course',
             title: 'Course',
-            progress: state.$1,
+            progress: progress,
             currentLessonId: 'a',
             chapters: makeOverview().chapters,
             quizAvailable: true,
-            quizPassed: state.$2,
+            quizPassed: quizPassed,
             certificateIssued: false,
-            canReview: true,
+            canReview: canReview,
           ));
         final controller = LearningController(repo, 'course');
         await controller.load();
-        expect(controller.canReview, state.$1 == 100 && state.$2);
+        expect(controller.canReview, progress == 100 && canReview);
         controller.dispose();
       }
     },

@@ -18,6 +18,8 @@ class ApiConfig {
 
   static const String googleServerClientId = String.fromEnvironment(
     'GOOGLE_SERVER_CLIENT_ID',
+    defaultValue:
+        '16112335076-7inckr0r5mo4og4gmi70c5t10j82bg4o.apps.googleusercontent.com',
   );
 
   static const Duration connectTimeout = Duration(seconds: 15);

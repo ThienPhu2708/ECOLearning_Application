@@ -5,8 +5,10 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_typography.dart';
 import '../../../core/utils/json_utils.dart';
 import '../../../data/repositories/quiz_repository.dart';
+import '../../../data/repositories/learning_repository.dart';
 import '../../widgets/app_button.dart';
 import '../../widgets/state_views.dart';
+import '../my_courses/certificate_screen.dart';
 import 'quiz_take_screen.dart';
 import 'quiz_result_screen.dart';
 import 'quiz_support_screen.dart';
@@ -28,9 +30,11 @@ class _QuizIntroScreenState extends State<QuizIntroScreen> {
       QuizRepository();
   Map<String, dynamic>? _info;
   Object? _error;
+  LearningOverview? _withoutQuiz;
   bool _loading = true;
   bool _starting = false;
   bool _confirming = false;
+  bool _openingCertificate = false;
   @override
   void initState() {
     super.initState();
@@ -41,10 +45,25 @@ class _QuizIntroScreenState extends State<QuizIntroScreen> {
     setState(() {
       _loading = true;
       _error = null;
+      _withoutQuiz = null;
     });
     try {
       final data = await _repo.info(widget.courseId);
       if (mounted) setState(() => _info = data);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      if (e.isNotFound && e.code == 'QUIZ_NOT_FOUND') {
+        try {
+          final learning =
+              LearningDataScope.read(context)?.learning ?? LearningRepository();
+          final overview = await learning.overview(widget.courseId);
+          if (mounted) setState(() => _withoutQuiz = overview);
+        } catch (error) {
+          if (mounted) setState(() => _error = error);
+        }
+      } else {
+        setState(() => _error = e);
+      }
     } catch (e) {
       if (mounted) setState(() => _error = e);
     } finally {
@@ -52,8 +71,27 @@ class _QuizIntroScreenState extends State<QuizIntroScreen> {
     }
   }
 
+  Future<void> _openCertificate({required bool quizAvailable}) async {
+    if (_openingCertificate || _starting || _confirming) return;
+    setState(() => _openingCertificate = true);
+    try {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => CertificateScreen(
+            courseId: widget.courseId,
+            quizAvailable: quizAvailable,
+            repository: _repo,
+          ),
+        ),
+      );
+      if (mounted) await _load();
+    } finally {
+      if (mounted) setState(() => _openingCertificate = false);
+    }
+  }
+
   Future<void> _start() async {
-    if (_starting || _confirming) return;
+    if (_starting || _confirming || _openingCertificate) return;
     final active = JsonUtils.asInt(_info?['activeAttemptId']) > 0;
     _confirming = true;
     try {
@@ -92,10 +130,6 @@ class _QuizIntroScreenState extends State<QuizIntroScreen> {
             ? await _repo.resume(JsonUtils.asInt(_info?['activeAttemptId']))
             : await _repo.start(widget.courseId);
       } on ApiException catch (e) {
-        if (e.code == 'QUIZ_FINISHED') {
-          await _load();
-          return;
-        }
         if (e.code != 'QUIZ_SESSION_ACTIVE' || !mounted) rethrow;
         final transfer = await showDialog<bool>(
           context: context,
@@ -140,6 +174,29 @@ class _QuizIntroScreenState extends State<QuizIntroScreen> {
         ),
       );
       if (mounted) await _load();
+    } on ApiException catch (e) {
+      if (active && e.code == 'QUIZ_FINISHED') {
+        try {
+          final result = await _repo.result(
+            JsonUtils.asInt(_info?['activeAttemptId']),
+          );
+          if (!mounted) return;
+          await Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => QuizResultScreen(
+                courseId: widget.courseId,
+                result: result,
+                repository: _repo,
+              ),
+            ),
+          );
+          if (mounted) await _load();
+        } catch (error) {
+          if (mounted) showErrorSnackBar(context, error);
+        }
+      } else if (mounted) {
+        showErrorSnackBar(context, e);
+      }
     } catch (e) {
       if (mounted) showErrorSnackBar(context, e);
     } finally {
@@ -155,6 +212,10 @@ class _QuizIntroScreenState extends State<QuizIntroScreen> {
     final allowed = JsonUtils.asInt(data['attemptsAllowed']);
     final used = JsonUtils.asInt(data['attemptsUsed']);
     final last = JsonUtils.asMap(data['lastResult']);
+    final withoutQuiz = _withoutQuiz;
+    final issued = JsonUtils.asBool(
+      JsonUtils.asMap(data['certificate'])['issued'],
+    );
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(title: const Text('Quiz cuối khóa')),
@@ -162,11 +223,35 @@ class _QuizIntroScreenState extends State<QuizIntroScreen> {
           ? const LoadingView()
           : _error != null
           ? ErrorView(error: _error, onRetry: _load)
+          : withoutQuiz != null
+          ? EmptyView(
+              icon: Icons.quiz_outlined,
+              title: 'Chưa có Quiz cuối khóa',
+              message: withoutQuiz.progress >= 100
+                  ? 'Bạn có thể kiểm tra chứng chỉ của khóa học.'
+                  : 'Hãy hoàn thành các bài học còn lại để đủ điều kiện.',
+              actionText: withoutQuiz.certificateIssued
+                  ? 'Xem chứng chỉ'
+                  : withoutQuiz.progress >= 100
+                  ? 'Kiểm tra chứng chỉ'
+                  : null,
+              onAction: _openingCertificate
+                  ? null
+                  : () => _openCertificate(quizAvailable: false),
+            )
           : RefreshIndicator(
               onRefresh: _load,
               child: ListView(
                 padding: const EdgeInsets.all(20),
                 children: [
+                  if (issued)
+                    OutlinedButton.icon(
+                      onPressed: _starting || _openingCertificate
+                          ? null
+                          : () => _openCertificate(quizAvailable: true),
+                      icon: const Icon(Icons.verified_outlined),
+                      label: const Text('Xem chứng chỉ'),
+                    ),
                   Container(
                     padding: const EdgeInsets.all(24),
                     decoration: BoxDecoration(

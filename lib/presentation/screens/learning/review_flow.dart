@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/network/api_exception.dart';
 import '../../../data/models/course.dart';
 import '../../../data/repositories/course_repository.dart';
 import '../../../data/repositories/review_repository.dart';
@@ -193,7 +194,9 @@ Future<void> openCourseReview(
     if (!detail.canReview) {
       showErrorSnackBar(
         context,
-        'Bạn cần học đủ bài và đạt quiz trước khi đánh giá.',
+        const ApiException(
+          message: 'Bạn cần hoàn thành tất cả bài học trước khi đánh giá.',
+        ),
       );
       return;
     }
@@ -214,4 +217,3 @@ Future<void> openCourseReview(
     if (context.mounted) showErrorSnackBar(context, error);
   }
 }
-

@@ -24,11 +24,11 @@ class HelpTermsScreen extends StatelessWidget {
     ),
     (
       'Làm sao nhận và xem chứng chỉ?',
-      'Học đủ bài và đạt quiz theo yêu cầu của khóa học, sau đó chọn nhận chứng chỉ trên trang kết quả. Các chứng chỉ đã nhận nằm trong Hồ sơ → Chứng chỉ của tôi. Học đủ bài chưa đồng nghĩa đã có chứng chỉ.',
+      'Sau khi học đủ bài, nếu khóa học chưa công bố quiz, chọn Kiểm tra chứng chỉ trong màn học. Nếu khóa học có quiz, hãy đạt quiz rồi chọn Nhận chứng chỉ trên trang kết quả. Chứng chỉ đã cấp nằm trong Hồ sơ → Chứng chỉ của tôi.',
     ),
     (
       'Khi nào tôi có thể đánh giá khóa học?',
-      'Bạn cần hoàn thành các bài học và đạt quiz cuối khóa. Khi đủ điều kiện, chức năng đánh giá sẽ được mở trong không gian học tập.',
+      'Sau khi hoàn thành tất cả bài học, bạn có thể đánh giá ngay trong màn học hoặc trong danh sách khóa học đã hoàn thành.',
     ),
     (
       'Khóa học yêu thích và đơn hàng nằm ở đâu?',

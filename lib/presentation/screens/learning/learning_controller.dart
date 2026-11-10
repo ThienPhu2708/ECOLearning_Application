@@ -37,10 +37,19 @@ class LearningController extends ChangeNotifier {
   }
 
   double get progress => overview?.progress.clamp(0, 100).toDouble() ?? 0;
-  bool get canReview =>
-      (overview?.canReview ?? false) &&
-      (overview?.quizPassed ?? false) &&
-      progress >= 100;
+  bool get canCheckCertificate =>
+      (overview?.certificateIssued ?? false) ||
+      (progress >= 100 && overview?.quizAvailable == false);
+
+  Future<void> refreshOverview() async {
+    final request = _request;
+    final latest = await repository.overview(courseId);
+    if (_disposed || request != _request) return;
+    overview = latest;
+    _emit();
+  }
+
+  bool get canReview => (overview?.canReview ?? false) && progress >= 100;
   void _emit() {
     if (!_disposed) notifyListeners();
   }

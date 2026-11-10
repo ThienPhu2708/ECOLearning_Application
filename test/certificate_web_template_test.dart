@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ecolearning_app/data/models/course.dart';
+import 'package:ecolearning_app/core/network/api_exception.dart';
 import 'package:ecolearning_app/data/repositories/quiz_repository.dart';
 import 'package:ecolearning_app/presentation/screens/my_courses/certificate_screen.dart';
 import 'package:ecolearning_app/presentation/screens/my_courses/web_certificate_canvas.dart';
@@ -32,13 +33,44 @@ class ExistingCertificateRepository extends QuizRepository {
   }
 }
 
+class MissingCertificateRepository extends QuizRepository {
+  @override
+  Future<Map<String, dynamic>> certificate(String courseId) async {
+    throw const ApiException(
+      statusCode: 404,
+      code: 'CERTIFICATE_NOT_FOUND',
+      message: 'Bạn chưa có chứng chỉ của khóa học này.',
+    );
+  }
+}
+
 void main() {
-  test('issued date preserves the server calendar date across time zones', () {
+  test('issued date uses the device time zone', () {
+    final date = DateTime.parse(
+      sampleCertificate['issuedAt'] as String,
+    ).toLocal();
     expect(
       WebCertificateCanvas.issuedDate(sampleCertificate['issuedAt']),
-      '20/10/2026',
+      '${date.day.toString().padLeft(2, '0')}/'
+      '${date.month.toString().padLeft(2, '0')}/${date.year}',
     );
     expect(WebCertificateCanvas.issuedDate(null), '—');
+  });
+  testWidgets('a missing certificate shows eligibility guidance', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CertificateScreen(
+          courseId: 'course',
+          quizAvailable: false,
+          repository: MissingCertificateRepository(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Chưa có chứng chỉ'), findsOneWidget);
+    expect(find.byType(WebCertificateCanvas), findsNothing);
   });
   testWidgets(
     'certificate matches web title, indigo border, seal and both signatures',
@@ -63,7 +95,12 @@ void main() {
       expect(find.text('Hội đồng Học thuật'), findsOneWidget);
       expect(find.text('Giảng viên phụ trách'), findsOneWidget);
       expect(find.text('★ VERIFIED ★'), findsOneWidget);
-      expect(find.text('20/10/2026'), findsOneWidget);
+      expect(
+        find.text(
+          WebCertificateCanvas.issuedDate(sampleCertificate['issuedAt']),
+        ),
+        findsOneWidget,
+      );
       expect(find.text('CHỨNG NHẬN HOÀN THÀNH'), findsNothing);
       final frames = tester.widgetList<Container>(find.byType(Container)).where(
         (c) {

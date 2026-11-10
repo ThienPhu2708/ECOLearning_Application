@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/network/api_client.dart';
 import '../../core/utils/json_utils.dart';
 
@@ -7,12 +8,37 @@ import '../../core/utils/json_utils.dart';
 /// Đáp án là vị trí 0 – 3 trong `options`, `-1` là chưa chọn.
 /// Các hàm trả `Map` theo đúng mẫu JSON trong tài liệu; Ngọc tạo model khi dựng màn hình quiz.
 class QuizRepository {
-  QuizRepository({ApiClient? client}) : _api = client ?? ApiClient.instance;
+  QuizRepository({ApiClient? client})
+    : _api = client ?? ApiClient.instance,
+      _usePersistentClientKey = client == null;
   final ApiClient _api;
-  final String _clientKey = List.generate(
+  final bool _usePersistentClientKey;
+  static const _clientKeyPreference = 'quiz.clientKey';
+  static Future<String>? _installationClientKey;
+  late final Future<String> _clientKey = _usePersistentClientKey
+      ? (_installationClientKey ??= _loadClientKey())
+      : Future.value(_newClientKey());
+
+  static String _newClientKey() => List.generate(
     32,
     (_) => Random.secure().nextInt(16).toRadixString(16),
   ).join();
+
+  static Future<String> _loadClientKey() async {
+    final preferences = SharedPreferencesAsync();
+    try {
+      final stored = await preferences.getString(_clientKeyPreference);
+      if (stored != null && RegExp(r'^[a-f0-9]{32}$').hasMatch(stored)) {
+        return stored;
+      }
+      final key = _newClientKey();
+      await preferences.setString(_clientKeyPreference, key);
+      return key;
+    } on Exception {
+      return _newClientKey();
+    }
+  }
+
   final Map<int, String> _writers = {};
   Future<Map<String, dynamic>> takeOver(String courseId) =>
       _start(courseId, true);
@@ -20,7 +46,7 @@ class QuizRepository {
     final result = JsonUtils.asMap(
       await _api.post(
         '/courses/$courseId/quiz/start',
-        data: {'clientKey': _clientKey, 'takeover': takeover},
+        data: {'clientKey': await _clientKey, 'takeover': takeover},
       ),
     );
     final token = JsonUtils.asStringOrNull(result['writerToken']);
@@ -71,7 +97,7 @@ class QuizRepository {
     final data = JsonUtils.asMap(
       await _api.post(
         '/quiz-attempts/$attemptId/resume',
-        data: {'clientKey': _clientKey, 'takeover': takeover},
+        data: {'clientKey': await _clientKey, 'takeover': takeover},
       ),
     );
     final token = JsonUtils.asStringOrNull(data['writerToken']);
@@ -112,7 +138,7 @@ class QuizRepository {
     final data = JsonUtils.asMap(
       await _api.post(
         '/courses/$courseId/quiz/retakes/$reviewId/start',
-        data: {'clientKey': _clientKey, 'takeover': takeover},
+        data: {'clientKey': await _clientKey, 'takeover': takeover},
       ),
     );
     final token = JsonUtils.asStringOrNull(data['writerToken']);

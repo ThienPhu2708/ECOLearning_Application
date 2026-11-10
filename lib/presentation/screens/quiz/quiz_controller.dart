@@ -28,6 +28,12 @@ class QuizController extends ChangeNotifier {
     departures = JsonUtils.asInt(attempt['departureCount']);
     _awayKey = JsonUtils.asStringOrNull(attempt['openDepartureKey']);
     expiresAt = DateTime.tryParse(JsonUtils.asString(attempt['expiresAt']));
+    if (attempt['remainingSeconds'] is num) {
+      final seconds = JsonUtils.asInt(attempt['remainingSeconds']);
+      // The API truncates fractional seconds when sending the countdown.
+      _serverTimeLeft = Duration(seconds: max(0, seconds) + 1);
+      _elapsed.start();
+    }
     questions = JsonUtils.asMapList(
       attempt['questions'],
     ).map(QuizQuestion.new).toList();
@@ -75,8 +81,8 @@ class QuizController extends ChangeNotifier {
     if (_awayKey != null) {
       _visibilityEvents.add((key: _awayKey!, returned: true));
       _awayKey = null;
-      unawaited(flushVisibility());
     }
+    if (_visibilityEvents.isNotEmpty) unawaited(flushVisibility());
     unawaited(checkSession());
     tick();
   }
@@ -121,7 +127,7 @@ class QuizController extends ChangeNotifier {
       final state = await repository.checkWriter(attemptId);
       if (_disposed) return;
       if (JsonUtils.asBool(state['finished'])) {
-        await submit();
+        await _finish(fetchResult: true);
       } else if (!JsonUtils.asBool(state['active'])) {
         sessionLost = true;
       }
@@ -137,6 +143,8 @@ class QuizController extends ChangeNotifier {
   final DateTime Function() _now;
   late final int attemptId;
   late final DateTime? expiresAt;
+  final Stopwatch _elapsed = Stopwatch();
+  Duration? _serverTimeLeft;
   late final List<QuizQuestion> questions;
   late final List<int> answers;
   Object? draftError;
@@ -152,10 +160,14 @@ class QuizController extends ChangeNotifier {
   Future<void> _queue = Future.value();
   Timer? _timer;
   int get answered => answers.where((a) => a >= 0).length;
-  int get secondsLeft => expiresAt == null
-      ? 0
-      : expiresAt!.difference(_now()).inSeconds.clamp(0, 86400 * 365);
-  bool get expired => expiresAt == null || !expiresAt!.isAfter(_now());
+  Duration get _timeLeft {
+    final serverTimeLeft = _serverTimeLeft;
+    if (serverTimeLeft != null) return serverTimeLeft - _elapsed.elapsed;
+    return expiresAt?.difference(_now()) ?? Duration.zero;
+  }
+
+  int get secondsLeft => _timeLeft.inSeconds.clamp(0, 86400 * 365);
+  bool get expired => _timeLeft <= Duration.zero;
   bool get dirty => _savedRevision != _revision;
   void _emit() {
     if (!_disposed) notifyListeners();
@@ -199,7 +211,12 @@ class QuizController extends ChangeNotifier {
     final snapshot = List<int>.of(answers);
     final revision = _revision;
     _queue = _queue.then((_) async {
-      if (result != null || revision <= _savedRevision) return;
+      if (_disposed ||
+          sessionLost ||
+          result != null ||
+          revision <= _savedRevision) {
+        return;
+      }
       saving = true;
       _emit();
       try {
@@ -209,7 +226,7 @@ class QuizController extends ChangeNotifier {
           draftError = null;
         } else {
           _autoAttempted = true;
-          unawaited(submit());
+          unawaited(_finish(fetchResult: supportsReview));
         }
       } catch (e) {
         draftError = e;
@@ -224,26 +241,34 @@ class QuizController extends ChangeNotifier {
     return _queue;
   }
 
-  Future<void> submit() async {
+  Future<void> submit() => _finish();
+
+  Future<void> _finish({bool fetchResult = false}) async {
     if (submitting || sessionLost || result != null || _disposed) return;
     submitting = true;
     submitError = null;
     _emit();
     try {
       await _queue;
+      if (_disposed || sessionLost) return;
       if (supportsReview) {
         await flushVisibility();
         if (visibilityError != null) throw visibilityError!;
       }
-      final response = await repository.submit(
-        attemptId,
-        List<int>.of(answers),
-      );
+      if (_disposed || sessionLost) return;
+      final response = fetchResult
+          ? await repository.result(attemptId)
+          : await repository.submit(attemptId, List<int>.of(answers));
       if (_disposed) return;
       result = response;
       _timer?.cancel();
     } catch (e) {
-      if (!_disposed) submitError = e;
+      if (!_disposed) {
+        submitError = e;
+        if (e is ApiException && e.code == 'QUIZ_SESSION_ACTIVE') {
+          sessionLost = true;
+        }
+      }
     } finally {
       submitting = false;
       _emit();

@@ -8,6 +8,7 @@ import '../../../core/network/api_exception.dart';
 import '../../../core/storage/token_storage.dart';
 import '../../../core/config/api_config.dart';
 import '../../../core/utils/json_utils.dart';
+import '../../../core/utils/html_text.dart';
 import '../../../data/models/course.dart';
 import '../../../data/models/lesson.dart';
 import '../../../data/repositories/course_repository.dart';
@@ -433,7 +434,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
                       ),
                       const SizedBox(height: 8.0),
                       Text(
-                        _course.description,
+                        htmlToPlainText(_course.description),
                         style: AppTypography.bodyMedium.copyWith(
                           color: AppColors.textBody,
                           height: 1.5,

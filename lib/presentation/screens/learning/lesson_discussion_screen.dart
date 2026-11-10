@@ -365,55 +365,82 @@ class _LessonDiscussionScreenState extends State<LessonDiscussionScreen>
     return 'Vừa xong';
   }
 
+  TextTheme get _textTheme => Theme.of(context).textTheme;
+
   Widget comment(DiscussionComment c) => Align(
-    alignment: c.isMine ? Alignment.centerRight : Alignment.centerLeft,
+    alignment: Alignment.topCenter,
     child: ConstrainedBox(
-      constraints: BoxConstraints(
-        maxWidth: MediaQuery.sizeOf(context).width * .85,
-      ),
-      child: Padding(
-        padding: const EdgeInsets.only(bottom: 20),
+      constraints: const BoxConstraints(maxWidth: 680),
+      child: Container(
+        width: double.infinity,
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          border: Border.all(color: AppColors.border),
+          borderRadius: BorderRadius.circular(14),
+        ),
         child: Column(
-          crossAxisAlignment: c.isMine
-              ? CrossAxisAlignment.end
-              : CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
-              textDirection: c.isMine ? TextDirection.rtl : TextDirection.ltr,
               children: [
                 CircleAvatar(
+                  radius: 18,
                   child: c.avatar == null
                       ? const Icon(Icons.person)
                       : ClipOval(
                           child: Image.network(
                             ApiConfig.resolveMediaUrl(c.avatar!),
-                            width: 40,
-                            height: 40,
+                            width: 36,
+                            height: 36,
                             fit: BoxFit.cover,
                             errorBuilder: (_, _, _) => const Icon(Icons.person),
                           ),
                         ),
                 ),
                 const SizedBox(width: 8),
-                Flexible(
-                  child: Text(
-                    '${c.name}${c.isTeacher ? ' · Giáo viên' : ''}',
-                    textAlign: c.isMine ? TextAlign.right : TextAlign.left,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(c.name, style: _textTheme.titleMedium),
+                      Wrap(
+                        spacing: 8,
+                        children: [
+                          if (c.isTeacher)
+                            Text(
+                              'Giáo viên',
+                              style: _textTheme.labelSmall?.copyWith(
+                                color: AppColors.primary,
+                              ),
+                            ),
+                          if (c.createdAt != null)
+                            Text(
+                              time(c.createdAt),
+                              style: _textTheme.labelSmall,
+                            ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(width: 6),
-                Text(time(c.createdAt), style: const TextStyle(fontSize: 8.4)),
               ],
             ),
             if (c.parentId != null &&
                 (c.replyToAuthor != null || c.replyToContent != null))
               Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(10),
+                width: double.infinity,
+                margin: const EdgeInsets.only(top: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
+                decoration: const BoxDecoration(
+                  color: AppColors.primaryLight,
+                  border: Border(
+                    left: BorderSide(color: AppColors.primary, width: 3),
+                  ),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -421,9 +448,8 @@ class _LessonDiscussionScreenState extends State<LessonDiscussionScreen>
                     if (c.replyToAuthor != null)
                       Text(
                         'Phản hồi ${c.replyToAuthor}',
-                        style: const TextStyle(
+                        style: _textTheme.labelSmall?.copyWith(
                           color: AppColors.primary,
-                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     if (c.replyToContent != null)
@@ -431,14 +457,23 @@ class _LessonDiscussionScreenState extends State<LessonDiscussionScreen>
                         c.replyToContent!,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
+                        style: _textTheme.labelSmall?.copyWith(
+                          fontWeight: FontWeight.w400,
+                        ),
                       ),
                   ],
                 ),
               ),
             if (c.content.isNotEmpty)
               Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: Text(c.content),
+                padding: const EdgeInsets.only(top: 10, bottom: 4),
+                child: Text(
+                  c.content,
+                  style: _textTheme.bodyLarge?.copyWith(
+                    fontWeight: FontWeight.w400,
+                    height: 1.6,
+                  ),
+                ),
               ),
             if (c.hasImage)
               FutureBuilder<Uint8List>(
@@ -495,6 +530,7 @@ class _LessonDiscussionScreenState extends State<LessonDiscussionScreen>
 
   @override
   Widget build(BuildContext context) => Scaffold(
+    backgroundColor: AppColors.background,
     appBar: AppBar(title: const Text('Thảo luận bài học')),
     body: SafeArea(
       child: Column(
@@ -506,10 +542,15 @@ class _LessonDiscussionScreenState extends State<LessonDiscussionScreen>
                 Expanded(
                   child: Text(
                     widget.lessonTitle,
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
+                    style: _textTheme.titleMedium,
                   ),
                 ),
-                if (page > 0) Text('$total bình luận'),
+                if (page > 0) ...[
+                  const SizedBox(width: 12),
+                  Text('$total bình luận', style: _textTheme.labelSmall),
+                ],
               ],
             ),
           ),
@@ -543,6 +584,7 @@ class _LessonDiscussionScreenState extends State<LessonDiscussionScreen>
                     ),
                   ),
           ),
+          const Divider(height: 1, color: AppColors.border),
           if (reply != null)
             ListTile(
               dense: true,

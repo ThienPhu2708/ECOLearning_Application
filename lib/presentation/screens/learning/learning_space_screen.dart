@@ -20,6 +20,7 @@ import '../../../data/repositories/support_repository.dart';
 import 'report_violation_sheet.dart';
 import '../../widgets/state_views.dart';
 import '../quiz/quiz_intro_screen.dart';
+import '../my_courses/certificate_screen.dart';
 import 'learning_controller.dart';
 import 'lesson_notes_tab.dart';
 import 'lesson_documents_tab.dart';
@@ -58,6 +59,7 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
   bool _leaving = false;
   bool _allowPop = false;
   bool _switching = false;
+  bool _openingAssessment = false;
   bool _completionSaveRequested = false;
   bool _endSaveRequested = false;
   int _videoRequest = 0;
@@ -296,16 +298,29 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
     }
   }
 
-  Future<void> _openQuiz() async {
-    await _video?.pause();
-    await _saveProgress();
-    if (!mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => QuizIntroScreen(courseId: _course.id),
-      ),
-    );
-    if (mounted) await _load();
+  Future<void> _openAssessment({required bool certificate}) async {
+    if (_openingAssessment) return;
+    setState(() => _openingAssessment = true);
+    try {
+      await _video?.pause();
+      await _saveProgress();
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => certificate
+              ? CertificateScreen(
+                  course: _course,
+                  quizAvailable: _learning.overview?.quizAvailable,
+                )
+              : QuizIntroScreen(courseId: _course.id),
+        ),
+      );
+      if (mounted) await _learning.refreshOverview();
+    } catch (error) {
+      if (mounted) showErrorSnackBar(context, error);
+    } finally {
+      if (mounted) setState(() => _openingAssessment = false);
+    }
   }
 
   Future<void> _openReport() async {
@@ -387,8 +402,9 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final hasQuiz = _learning.overview?.quizAvailable ?? false;
+                final checkCertificate = _learning.canCheckCertificate;
                 final twoColumns =
-                    hasQuiz &&
+                    (hasQuiz || checkCertificate) &&
                     constraints.maxWidth >= 300 &&
                     MediaQuery.textScalerOf(context).scale(13) <= 17;
                 final width = twoColumns
@@ -446,9 +462,26 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
                         SizedBox(
                           width: width,
                           child: TextButton.icon(
-                            onPressed: _openQuiz,
+                            onPressed: _openingAssessment
+                                ? null
+                                : () => _openAssessment(certificate: false),
                             icon: const Icon(Icons.quiz_outlined, size: 18),
                             label: const Text('Quiz cuối khóa'),
+                          ),
+                        ),
+                      if (checkCertificate)
+                        SizedBox(
+                          width: width,
+                          child: TextButton.icon(
+                            onPressed: _openingAssessment
+                                ? null
+                                : () => _openAssessment(certificate: true),
+                            icon: const Icon(Icons.verified_outlined, size: 18),
+                            label: Text(
+                              _learning.overview!.certificateIssued
+                                  ? 'Xem chứng chỉ'
+                                  : 'Kiểm tra chứng chỉ',
+                            ),
                           ),
                         ),
                     ],
@@ -637,7 +670,6 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
                 ),
               ),
               const SizedBox(width: AppDimens.p8),
-              // Chỉ hiện đánh giá sau khi hoàn thành bài học và đạt quiz.
               if (_learning.canReview)
                 OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(
@@ -662,7 +694,7 @@ class _LearningSpaceScreenState extends State<LearningSpaceScreen>
                       fontWeight: FontWeight.w700,
                     ),
                   ),
-                  onPressed: _learning.canReview ? _openRatingDialog : null,
+                  onPressed: _openRatingDialog,
                 ),
               // Báo cáo vi phạm (J2): chỉ học viên đã đăng ký mới vào được không gian học
               IconButton(
